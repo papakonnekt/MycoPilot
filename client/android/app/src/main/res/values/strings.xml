@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MycoScheduler</string>
+    <string name="title_activity_main">MycoScheduler</string>
+    <string name="package_name">com.mycoscheduler.app</string>
+    <string name="custom_url_scheme">com.mycoscheduler.app</string>
+</resources>
