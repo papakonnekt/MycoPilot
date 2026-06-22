@@ -1,0 +1,1086 @@
+// =============================================================
+// Myco Lab — Settings (Phase 3 Step 2)
+//
+// Desktop-optimized constraint-solver control center.
+// Two-column layout at md+ (Hardware left, Species grid right),
+// stacked on mobile.
+//
+// Data flow:
+//   1. GET /api/settings → SettingsPayload
+//   2. Hardware: PUT /settings/hardware (partial UPDATE — server uses COALESCE)
+//   3. Species profiles: PUT /settings/species/:id/profile
+//      (creates a NEW effective species_profile row, expiring the prior one)
+//   4. After each save, POST /scheduler/run to regenerate tasks.
+//
+// Design system: bezel-shell/bezel-core, eyebrow-tag, Instrument Serif H1,
+// framer-motion fade/slide. All tokens come from tailwind.config.js + index.css.
+// =============================================================
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
+import {
+  ArrowClockwise,
+  Check,
+  CircleNotch,
+  Cpu,
+  Flask,
+  PlayCircle,
+  Warning,
+} from 'phosphor-react'
+
+import {
+  ApiError,
+  getSettings,
+  runScheduler,
+  updateHardwareSettings,
+  updateSpeciesProfile,
+  type HardwareSettingsRow,
+  type SettingsPayload,
+  type SettingsSpeciesRow,
+} from '../lib/api'
+
+// ─────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────
+
+type FetchState =
+  | { kind: 'loading' }
+  | { kind: 'error'; message: string }
+  | { kind: 'ready'; data: SettingsPayload }
+
+interface HardwareDraft {
+  max_pc_runs_per_day: number
+  max_bags_per_pc_run: number
+  grain_cycle_mins: number
+  grain_prep_cool_mins: number
+  bulk_cycle_mins: number
+  bulk_prep_cool_mins: number
+  microlab_cycle_mins: number
+  microlab_prep_cool_mins: number
+  daily_available_mins: number
+  scheduling_horizon_days: number
+}
+
+interface SpeciesDraft {
+  id: number
+  common_name: string
+  lc_to_gen1_days_min: number
+  lc_to_gen1_days_max: number
+  gen2_colonization_days_min: number
+  gen2_colonization_days_max: number
+  bulk_colonization_days_min: number
+  bulk_colonization_days_max: number
+  fruiting_days_min: number
+  fruiting_days_max: number
+  gen1_to_gen2_ratio: number
+  gen2_to_bulk_spawn_pct: number
+  target_biological_efficiency: number
+  senescence_threshold_pct: number
+  max_generations: number
+  spore_clone_freq: number
+}
+
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+// ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+
+function toHardwareDraft(row: HardwareSettingsRow): HardwareDraft {
+  return {
+    max_pc_runs_per_day: row.max_pc_runs_per_day,
+    max_bags_per_pc_run: row.max_bags_per_pc_run,
+    grain_cycle_mins: row.grain_cycle_mins,
+    grain_prep_cool_mins: row.grain_prep_cool_mins,
+    bulk_cycle_mins: row.bulk_cycle_mins,
+    bulk_prep_cool_mins: row.bulk_prep_cool_mins,
+    microlab_cycle_mins: row.microlab_cycle_mins,
+    microlab_prep_cool_mins: row.microlab_prep_cool_mins,
+    daily_available_mins: row.daily_available_mins,
+    scheduling_horizon_days: row.scheduling_horizon_days,
+  }
+}
+
+function toSpeciesDraft(row: SettingsSpeciesRow): SpeciesDraft {
+  const num = (v: number | string | undefined | null, fallback: number): number => {
+    if (v == null) return fallback
+    const n = typeof v === 'string' ? parseFloat(v) : v
+    return Number.isFinite(n) ? n : fallback
+  }
+  return {
+    id: row.id,
+    common_name: row.common_name,
+    lc_to_gen1_days_min: num(row.lc_to_gen1_days_min, 14),
+    lc_to_gen1_days_max: num(row.lc_to_gen1_days_max, 18),
+    gen2_colonization_days_min: num(row.gen2_colonization_days_min, 12),
+    gen2_colonization_days_max: num(row.gen2_colonization_days_max, 16),
+    bulk_colonization_days_min: num(row.bulk_colonization_days_min, 12),
+    bulk_colonization_days_max: num(row.bulk_colonization_days_max, 16),
+    fruiting_days_min: num(row.fruiting_days_min, 5),
+    fruiting_days_max: num(row.fruiting_days_max, 10),
+    gen1_to_gen2_ratio: num(row.gen1_to_gen2_ratio, 10),
+    gen2_to_bulk_spawn_pct: num(row.gen2_to_bulk_spawn_pct, 0.2),
+    target_biological_efficiency: num(row.target_biological_efficiency, 0.5),
+    senescence_threshold_pct: num(row.senescence_threshold_pct, 0.2),
+    max_generations: num(row.max_generations, 8),
+    spore_clone_freq: num(row.spore_clone_freq, 3),
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// ROOT
+// ─────────────────────────────────────────────────────────────
+
+let loadInFlight: Promise<void> | null = null
+
+export default function SettingsView() {
+  const [state, setState] = useState<FetchState>({ kind: 'loading' })
+
+  const load = useCallback(async (): Promise<void> => {
+    if (loadInFlight) return loadInFlight
+    setState({ kind: 'loading' })
+    const work = (async () => {
+      try {
+        const data = await getSettings()
+        setState({ kind: 'ready', data })
+      } catch (err) {
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Could not load bench settings.'
+        setState({ kind: 'error', message })
+      }
+    })()
+    loadInFlight = work.finally(() => {
+      loadInFlight = null
+    })
+    return loadInFlight
+  }, [])
+
+  const loadRef = useRef(load)
+  useEffect(() => {
+    loadRef.current = load
+  })
+  useEffect(() => {
+    void loadRef.current()
+  }, [])
+
+  if (state.kind === 'loading') return <SettingsSkeleton />
+  if (state.kind === 'error') {
+    return <SettingsError message={state.message} onRetry={load} />
+  }
+
+  return (
+    <SettingsReady
+      key={state.data.hardware.id + ':' + state.data.species.length}
+      data={state.data}
+      onReload={load}
+    />
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// READY
+// ─────────────────────────────────────────────────────────────
+
+function SettingsReady({
+  data,
+  onReload,
+}: {
+  data: SettingsPayload
+  onReload: () => void
+}) {
+  const reduceMotion = useReducedMotion()
+  const [hwDraft, setHwDraft] = useState<HardwareDraft>(() =>
+    toHardwareDraft(data.hardware),
+  )
+  const [speciesDrafts, setSpeciesDrafts] = useState<SpeciesDraft[]>(() =>
+    data.species.map(toSpeciesDraft),
+  )
+  const [hwStatus, setHwStatus] = useState<SaveStatus>('idle')
+  const [hwError, setHwError] = useState<string | null>(null)
+  const [speciesStatus, setSpeciesStatus] = useState<Record<number, SaveStatus>>({})
+  const [speciesError, setSpeciesError] = useState<Record<number, string | null>>({})
+  const [runStatus, setRunStatus] = useState<SaveStatus>('idle')
+  const [toast, setToast] = useState<string | null>(null)
+
+  // The parent re-mounts this component (via key) when the upstream
+  // payload identity changes — so no effect-based sync is needed here.
+  // Drafts are seeded from props at mount time.
+
+  const hwDirty = useMemo(() => {
+    const original = toHardwareDraft(data.hardware)
+    return (Object.keys(original) as Array<keyof HardwareDraft>).some(
+      (k) => original[k] !== hwDraft[k],
+    )
+  }, [data.hardware, hwDraft])
+
+  // Auto-clear "saved ✓" after 1.8s.
+  useEffect(() => {
+    if (hwStatus !== 'saved') return
+    const t = window.setTimeout(() => setHwStatus('idle'), 1800)
+    return () => window.clearTimeout(t)
+  }, [hwStatus])
+  useEffect(() => {
+    const allSaved = Object.values(speciesStatus).every((s) => s !== 'saved')
+    if (allSaved) return
+    const t = window.setTimeout(() => {
+      setSpeciesStatus((prev) => {
+        const next = { ...prev }
+        for (const k of Object.keys(next)) {
+          if (next[Number(k)] === 'saved') next[Number(k)] = 'idle'
+        }
+        return next
+      })
+    }, 1800)
+    return () => window.clearTimeout(t)
+  }, [speciesStatus])
+
+  // ── Hardware save ─────────────────────────────────────────
+  const handleSaveHardware = useCallback(async () => {
+    if (!hwDirty || hwStatus === 'saving') return
+    setHwStatus('saving')
+    setHwError(null)
+    try {
+      await updateHardwareSettings(hwDraft)
+      setHwStatus('saved')
+      onReload()
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Could not save hardware settings.'
+      setHwStatus('error')
+      setHwError(message)
+      window.setTimeout(() => setHwStatus('idle'), 2400)
+    }
+  }, [hwDraft, hwDirty, hwStatus, onReload])
+
+  // ── Species save ──────────────────────────────────────────
+  const handleSaveSpecies = useCallback(
+    async (draft: SpeciesDraft) => {
+      const id = draft.id
+      setSpeciesStatus((prev) => ({ ...prev, [id]: 'saving' }))
+      setSpeciesError((prev) => ({ ...prev, [id]: null }))
+      try {
+        await updateSpeciesProfile(id, {
+          lcToGen1DaysMin: draft.lc_to_gen1_days_min,
+          lcToGen1DaysMax: draft.lc_to_gen1_days_max,
+          gen2ColonizationDaysMin: draft.gen2_colonization_days_min,
+          gen2ColonizationDaysMax: draft.gen2_colonization_days_max,
+          bulkColonizationDaysMin: draft.bulk_colonization_days_min,
+          bulkColonizationDaysMax: draft.bulk_colonization_days_max,
+          fruitingDaysMin: draft.fruiting_days_min,
+          fruitingDaysMax: draft.fruiting_days_max,
+          gen1ToGen2Ratio: draft.gen1_to_gen2_ratio,
+          gen2ToBulkSpawnPct: draft.gen2_to_bulk_spawn_pct,
+          targetBiologicalEfficiency: draft.target_biological_efficiency,
+          senescenceThresholdPct: draft.senescence_threshold_pct,
+          maxGenerations: draft.max_generations,
+          sporeCloneFreq: draft.spore_clone_freq,
+        })
+        setSpeciesStatus((prev) => ({ ...prev, [id]: 'saved' }))
+        onReload()
+      } catch (err) {
+        const message =
+          err instanceof ApiError ? err.message : 'Could not save species profile.'
+        setSpeciesStatus((prev) => ({ ...prev, [id]: 'error' }))
+        setSpeciesError((prev) => ({ ...prev, [id]: message }))
+        window.setTimeout(() => {
+          setSpeciesStatus((prev) => ({ ...prev, [id]: 'idle' }))
+        }, 2400)
+      }
+    },
+    [onReload],
+  )
+
+  // ── Manual scheduler re-run ───────────────────────────────
+  const handleRunScheduler = useCallback(async () => {
+    if (runStatus === 'saving') return
+    setRunStatus('saving')
+    try {
+      const result = await runScheduler()
+      setRunStatus('saved')
+      setToast(`Scheduler ran · ${result.tasksGenerated} tasks · ${result.warningCount} warnings`)
+      window.setTimeout(() => setToast(null), 3500)
+      onReload()
+    } catch (err) {
+      const message =
+        err instanceof ApiError ? err.message : 'Scheduler run failed.'
+      setRunStatus('error')
+      setToast(message)
+      window.setTimeout(() => setToast(null), 3500)
+    } finally {
+      window.setTimeout(() => setRunStatus('idle'), 1800)
+    }
+  }, [onReload, runStatus])
+
+  return (
+    <div className="relative">
+      <motion.div
+        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
+        className="mx-auto w-full max-w-6xl"
+      >
+        {/* Header */}
+        <div className="pt-2">
+          <div className="flex items-center gap-3">
+            <span className="eyebrow-tag">Settings</span>
+            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
+              Step 4 · Constraint Solver
+            </span>
+          </div>
+          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+            Bench configuration.
+          </h1>
+          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
+            Hardware caps, cycle times, and species biological timelines. Edits
+            version-control species profiles — old versions stay queryable for
+            audit. Re-run the scheduler after a save to regenerate tasks.
+          </p>
+        </div>
+
+        {/* Top action: Run scheduler */}
+        <div className="mt-7">
+          <div className="bezel-shell">
+            <div className="bezel-core flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="shrink-0 h-9 w-9 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
+                  <PlayCircle size={18} weight="regular" />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-medium text-ink leading-snug">
+                    Regenerate scheduled tasks
+                  </div>
+                  <div className="text-[12px] text-graphite-500 font-mono">
+                    POST /api/scheduler/run
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRunScheduler}
+                disabled={runStatus === 'saving'}
+                className={
+                  'group inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-450 ease-fluid ' +
+                  (runStatus === 'saved'
+                    ? 'bg-moss-700 text-paper'
+                    : runStatus === 'error'
+                    ? 'bg-[#B23A2A] text-paper'
+                    : 'bg-ink text-paper hover:bg-graphite-600 active:scale-[0.98]')
+                }
+              >
+                {runStatus === 'saving' ? (
+                  <CircleNotch
+                    size={14}
+                    weight="regular"
+                    className="animate-spin"
+                  />
+                ) : runStatus === 'saved' ? (
+                  <Check size={14} weight="regular" />
+                ) : (
+                  <PlayCircle
+                    size={14}
+                    weight="regular"
+                    className="transition-transform duration-450 ease-fluid group-hover:scale-[1.06]"
+                  />
+                )}
+                <span>
+                  {runStatus === 'saving'
+                    ? 'Running…'
+                    : runStatus === 'saved'
+                    ? 'Done'
+                    : runStatus === 'error'
+                    ? 'Failed'
+                    : 'Run scheduler'}
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Two-column bento */}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
+          {/* Section A — Hardware */}
+          <section className="md:col-span-5">
+            <HardwareSection
+              draft={hwDraft}
+              onChange={setHwDraft}
+              dirty={hwDirty}
+              status={hwStatus}
+              error={hwError}
+              onSave={handleSaveHardware}
+            />
+          </section>
+
+          {/* Section B — Species grid */}
+          <section className="md:col-span-7">
+            <SpeciesSection
+              drafts={speciesDrafts}
+              statuses={speciesStatus}
+              errors={speciesError}
+              onChange={setSpeciesDrafts}
+              onSave={handleSaveSpecies}
+            />
+          </section>
+        </div>
+
+        <div className="mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+          <span>End of settings</span>
+        </div>
+      </motion.div>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+            className="fixed left-1/2 -translate-x-1/2 bottom-28 z-50 px-4"
+            role="status"
+          >
+            <div className="bezel-shell">
+              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink">
+                <Warning size={18} weight="regular" className="text-amber_lab" />
+                <span>{toast}</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// HARDWARE SECTION
+// ─────────────────────────────────────────────────────────────
+
+function HardwareSection({
+  draft,
+  onChange,
+  dirty,
+  status,
+  error,
+  onSave,
+}: {
+  draft: HardwareDraft
+  onChange: (next: HardwareDraft) => void
+  dirty: boolean
+  status: SaveStatus
+  error: string | null
+  onSave: () => void
+}) {
+  const set = <K extends keyof HardwareDraft>(k: K, v: HardwareDraft[K]) =>
+    onChange({ ...draft, [k]: v })
+
+  return (
+    <div className="bezel-shell">
+      <div className="bezel-core p-5 md:p-6">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div>
+            <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
+              Hardware
+            </span>
+            <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+              PC capacity & cycles
+            </h2>
+          </div>
+          <div className="shrink-0 h-10 w-10 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
+            <Cpu size={20} weight="regular" />
+          </div>
+        </div>
+        <p className="text-[13px] text-graphite-500 mb-5">
+          How many runs fit in a day, and how long each cycle cooks and cools.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <NumberField
+            label="Max PC runs / day"
+            hint="Hard daily cap"
+            value={draft.max_pc_runs_per_day}
+            onChange={(v) => set('max_pc_runs_per_day', v)}
+            min={1}
+            max={12}
+            step={1}
+          />
+          <NumberField
+            label="Max bags / PC run"
+            hint="Per cycle"
+            value={draft.max_bags_per_pc_run}
+            onChange={(v) => set('max_bags_per_pc_run', v)}
+            min={1}
+            max={20}
+            step={1}
+          />
+          <NumberField
+            label="Grain cycle"
+            suffix="min"
+            value={draft.grain_cycle_mins}
+            onChange={(v) => set('grain_cycle_mins', v)}
+            min={30}
+            max={480}
+            step={5}
+          />
+          <NumberField
+            label="Grain cool-down"
+            suffix="min"
+            value={draft.grain_prep_cool_mins}
+            onChange={(v) => set('grain_prep_cool_mins', v)}
+            min={30}
+            max={240}
+            step={5}
+          />
+          <NumberField
+            label="Bulk cycle"
+            suffix="min"
+            value={draft.bulk_cycle_mins}
+            onChange={(v) => set('bulk_cycle_mins', v)}
+            min={30}
+            max={480}
+            step={5}
+          />
+          <NumberField
+            label="Bulk cool-down"
+            suffix="min"
+            value={draft.bulk_prep_cool_mins}
+            onChange={(v) => set('bulk_prep_cool_mins', v)}
+            min={30}
+            max={240}
+            step={5}
+          />
+          <NumberField
+            label="Microlab cycle"
+            suffix="min"
+            value={draft.microlab_cycle_mins}
+            onChange={(v) => set('microlab_cycle_mins', v)}
+            min={10}
+            max={180}
+            step={5}
+          />
+          <NumberField
+            label="Microlab cool-down"
+            suffix="min"
+            value={draft.microlab_prep_cool_mins}
+            onChange={(v) => set('microlab_prep_cool_mins', v)}
+            min={15}
+            max={180}
+            step={5}
+          />
+          <NumberField
+            label="Daily budget"
+            suffix="min"
+            hint="Soft warning threshold"
+            value={draft.daily_available_mins}
+            onChange={(v) => set('daily_available_mins', v)}
+            min={60}
+            max={1440}
+            step={15}
+          />
+          <NumberField
+            label="Horizon"
+            suffix="days"
+            hint="Scheduler window"
+            value={draft.scheduling_horizon_days}
+            onChange={(v) => set('scheduling_horizon_days', v)}
+            min={7}
+            max={90}
+            step={1}
+          />
+        </div>
+
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <div className="text-[12px] text-graphite-500 font-mono">
+            PUT /api/settings/hardware
+          </div>
+          <SaveButton
+            status={status}
+            disabled={!dirty}
+            dirty={dirty}
+            onClick={onSave}
+          />
+        </div>
+        {error && (
+          <div className="mt-3 text-[12px] text-[#B23A2A] font-mono">
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// SPECIES SECTION
+// ─────────────────────────────────────────────────────────────
+
+function SpeciesSection({
+  drafts,
+  statuses,
+  errors,
+  onChange,
+  onSave,
+}: {
+  drafts: SpeciesDraft[]
+  statuses: Record<number, SaveStatus>
+  errors: Record<number, string | null>
+  onChange: (next: SpeciesDraft[]) => void
+  onSave: (draft: SpeciesDraft) => void
+}) {
+  const updateOne = useCallback(
+    (id: number, patch: Partial<SpeciesDraft>) => {
+      onChange(
+        drafts.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+      )
+    },
+    [drafts, onChange],
+  )
+
+  return (
+    <div className="bezel-shell">
+      <div className="bezel-core p-5 md:p-6">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <div>
+            <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
+              Species
+            </span>
+            <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+              Biological timelines
+            </h2>
+          </div>
+          <div className="shrink-0 h-10 w-10 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
+            <Flask size={20} weight="regular" />
+          </div>
+        </div>
+        <p className="text-[13px] text-graphite-500 mb-5">
+          Per-species colonization and fruiting windows, expansion ratios, and
+          the biological-efficiency threshold that triggers senescence flags.
+        </p>
+
+        <div className="space-y-4">
+          {drafts.length === 0 ? (
+            <div className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-6 text-center text-[13px] text-graphite-500">
+              No species configured. Add one in the database to begin.
+            </div>
+          ) : (
+            drafts.map((d) => (
+              <SpeciesCard
+                key={d.id}
+                draft={d}
+                status={statuses[d.id] ?? 'idle'}
+                error={errors[d.id] ?? null}
+                onChange={(patch) => updateOne(d.id, patch)}
+                onSave={() => onSave(d)}
+              />
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SpeciesCard({
+  draft,
+  status,
+  error,
+  onChange,
+  onSave,
+}: {
+  draft: SpeciesDraft
+  status: SaveStatus
+  error: string | null
+  onChange: (patch: Partial<SpeciesDraft>) => void
+  onSave: () => void
+}) {
+  return (
+    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-4 md:p-5">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="font-serif text-2xl leading-tight text-ink truncate">
+            {draft.common_name}
+          </div>
+          <div className="text-[11px] text-graphite-500 font-mono uppercase tracking-eyebrow mt-0.5">
+            Profile · versioned
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <RangeField
+          label="LC → Gen 1"
+          min={draft.lc_to_gen1_days_min}
+          max={draft.lc_to_gen1_days_max}
+          onChange={(min, max) =>
+            onChange({
+              lc_to_gen1_days_min: min,
+              lc_to_gen1_days_max: max,
+            })
+          }
+        />
+        <RangeField
+          label="Gen 2 colonize"
+          min={draft.gen2_colonization_days_min}
+          max={draft.gen2_colonization_days_max}
+          onChange={(min, max) =>
+            onChange({
+              gen2_colonization_days_min: min,
+              gen2_colonization_days_max: max,
+            })
+          }
+        />
+        <RangeField
+          label="Bulk colonize"
+          min={draft.bulk_colonization_days_min}
+          max={draft.bulk_colonization_days_max}
+          onChange={(min, max) =>
+            onChange({
+              bulk_colonization_days_min: min,
+              bulk_colonization_days_max: max,
+            })
+          }
+        />
+        <RangeField
+          label="Fruiting"
+          min={draft.fruiting_days_min}
+          max={draft.fruiting_days_max}
+          onChange={(min, max) =>
+            onChange({
+              fruiting_days_min: min,
+              fruiting_days_max: max,
+            })
+          }
+        />
+        <NumberField
+          label="Gen1→Gen2 ratio"
+          value={draft.gen1_to_gen2_ratio}
+          onChange={(v) => onChange({ gen1_to_gen2_ratio: v })}
+          min={2}
+          max={30}
+          step={1}
+          suffix="×"
+        />
+        <NumberField
+          label="G2 → bulk spawn"
+          value={draft.gen2_to_bulk_spawn_pct}
+          onChange={(v) => onChange({ gen2_to_bulk_spawn_pct: v })}
+          min={0.05}
+          max={0.5}
+          step={0.01}
+          suffix=""
+          format={(n) => `${Math.round(n * 100)}%`}
+        />
+        <NumberField
+          label="Target BE"
+          value={draft.target_biological_efficiency}
+          onChange={(v) => onChange({ target_biological_efficiency: v })}
+          min={0.1}
+          max={1.5}
+          step={0.01}
+          format={(n) => `${Math.round(n * 100)}%`}
+        />
+        <NumberField
+          label="Senescence tol"
+          value={draft.senescence_threshold_pct}
+          onChange={(v) => onChange({ senescence_threshold_pct: v })}
+          min={0.05}
+          max={0.5}
+          step={0.01}
+          format={(n) => `${Math.round(n * 100)}%`}
+        />
+        <NumberField
+          label="Max gens"
+          value={draft.max_generations}
+          onChange={(v) => onChange({ max_generations: v })}
+          min={2}
+          max={20}
+          step={1}
+        />
+        <NumberField
+          label="Spore clone freq"
+          hint="Every Nth fruiting"
+          value={draft.spore_clone_freq}
+          onChange={(v) => onChange({ spore_clone_freq: v })}
+          min={1}
+          max={10}
+          step={1}
+        />
+        <NumberField
+          label="LC injection"
+          value={Number(
+            (
+              (draft as unknown as { lc_injection_volume_ml?: number })
+                .lc_injection_volume_ml ?? 10
+            ),
+          )}
+          onChange={() => {
+            /* read-only mirror — surface only */
+          }}
+          suffix="mL"
+          disabled
+        />
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div className="text-[11px] text-graphite-500 font-mono">
+          PUT /api/settings/species/{draft.id}/profile
+        </div>
+        <SaveButton
+          status={status}
+          dirty={true}
+          disabled={status === 'saving'}
+          onClick={onSave}
+          label="Save profile"
+        />
+      </div>
+      {error && (
+        <div className="mt-2 text-[12px] text-[#B23A2A] font-mono">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// PRIMITIVES
+// ─────────────────────────────────────────────────────────────
+
+function NumberField({
+  label,
+  hint,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  suffix,
+  disabled = false,
+  format,
+}: {
+  label: string
+  hint?: string
+  value: number
+  onChange: (v: number) => void
+  min?: number
+  max?: number
+  step?: number
+  suffix?: string
+  disabled?: boolean
+  format?: (n: number) => string
+}) {
+  return (
+    <label className="block">
+      <div className="flex items-baseline justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium">
+          {label}
+        </span>
+        {hint && (
+          <span className="text-[10px] text-ink/30 font-mono">{hint}</span>
+        )}
+      </div>
+      <div
+        className={
+          'flex items-center gap-1.5 rounded-full bg-paper ring-1 ring-ink/10 px-3 py-2 transition-all duration-450 ease-fluid ' +
+          (disabled ? 'opacity-60' : 'focus-within:ring-ink/30 hover:ring-ink/20')
+        }
+      >
+        <input
+          type="number"
+          value={Number.isFinite(value) ? value : ''}
+          min={min}
+          max={max}
+          step={step}
+          disabled={disabled}
+          onChange={(e) => {
+            const n = parseFloat(e.target.value)
+            if (Number.isFinite(n)) onChange(n)
+          }}
+          className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <span className="text-[12px] text-ink/40 font-mono shrink-0">
+          {format ? format(value) : suffix ?? ''}
+        </span>
+      </div>
+    </label>
+  )
+}
+
+function RangeField({
+  label,
+  min,
+  max,
+  onChange,
+}: {
+  label: string
+  min: number
+  max: number
+  onChange: (min: number, max: number) => void
+}) {
+  return (
+    <div className="block">
+      <div className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium mb-1">
+        {label}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30">
+          <span className="text-[10px] text-ink/40 font-mono">min</span>
+          <input
+            type="number"
+            value={Number.isFinite(min) ? min : ''}
+            onChange={(e) => {
+              const n = parseFloat(e.target.value)
+              if (Number.isFinite(n)) onChange(n, max)
+            }}
+            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </div>
+        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30">
+          <span className="text-[10px] text-ink/40 font-mono">max</span>
+          <input
+            type="number"
+            value={Number.isFinite(max) ? max : ''}
+            onChange={(e) => {
+              const n = parseFloat(e.target.value)
+              if (Number.isFinite(n)) onChange(min, n)
+            }}
+            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SaveButton({
+  status,
+  dirty,
+  disabled,
+  onClick,
+  label = 'Save',
+}: {
+  status: SaveStatus
+  dirty: boolean
+  disabled?: boolean
+  onClick: () => void
+  label?: string
+}) {
+  const isSaving = status === 'saving'
+  const isSaved = status === 'saved'
+  const isError = status === 'error'
+  const isIdle = !isSaving && !isSaved && !isError
+
+  const colorClasses = isSaved
+    ? 'bg-moss-700 text-paper ring-moss-700/30'
+    : isError
+    ? 'bg-[#B23A2A] text-paper ring-[#B23A2A]/30'
+    : isIdle && dirty
+    ? 'bg-ink text-paper hover:bg-graphite-600 ring-ink/10'
+    : 'bg-paper text-ink/40 ring-ink/10 cursor-not-allowed'
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || (!dirty && isIdle) || isSaving}
+      className={
+        'group inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium ring-1 transition-all duration-450 ease-fluid active:scale-[0.98] ' +
+        colorClasses
+      }
+    >
+      {isSaving ? (
+        <CircleNotch size={12} weight="regular" className="animate-spin" />
+      ) : isSaved ? (
+        <Check size={12} weight="regular" />
+      ) : null}
+      <span>
+        {isSaving ? 'Saving…' : isSaved ? 'Saved ✓' : isError ? 'Failed' : label}
+      </span>
+    </button>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// SKELETON + ERROR
+// ─────────────────────────────────────────────────────────────
+
+function SettingsSkeleton() {
+  return (
+    <div className="mx-auto w-full max-w-6xl">
+      <div className="pt-2">
+        <span className="eyebrow-tag opacity-60">Settings</span>
+        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse" />
+        <div className="mt-3 h-3 w-1/2 rounded-full bg-ink/[0.05] animate-pulse" />
+      </div>
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
+        <div className="md:col-span-5 bezel-shell">
+          <div className="bezel-core p-5 space-y-3">
+            <div className="h-8 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
+            <div className="grid grid-cols-2 gap-3">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="h-12 rounded-full bg-ink/[0.05] animate-pulse" />
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="md:col-span-7 bezel-shell">
+          <div className="bezel-core p-5 space-y-4">
+            <div className="h-8 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
+            <div className="h-40 rounded-2xl bg-ink/[0.05] animate-pulse" />
+            <div className="h-40 rounded-2xl bg-ink/[0.05] animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SettingsError({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <div className="pt-2">
+        <span className="eyebrow-tag">Settings</span>
+        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          Settings unreachable
+        </h1>
+      </div>
+      <div className="mt-8">
+        <div className="bezel-shell">
+          <div className="bezel-core p-6">
+            <div className="flex items-start gap-3">
+              <Warning size={22} weight="regular" className="text-amber_lab shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[15px] text-ink leading-relaxed">{message}</p>
+                <p className="mt-1 text-[12px] text-ink/50 font-mono">
+                  GET /api/settings
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+            >
+              <ArrowClockwise
+                size={16}
+                weight="regular"
+                className="transition-transform duration-450 ease-fluid group-hover:rotate-[60deg]"
+              />
+              <span>Retry</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

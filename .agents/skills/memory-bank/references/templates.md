@@ -1,0 +1,505 @@
+# Memory Bank — Templates
+
+## Note (`notes/`)
+
+File: `notes/YYYY-MM-DD_HH-MM_<topic>.md`
+
+```markdown
+# <Topic>
+Date: YYYY-MM-DD HH:MM
+
+## What was done
+- <action 1>
+- <action 2>
+- <action 3>
+
+## New knowledge
+- <conclusion, pattern, reusable solution>
+- <what to remember for future sessions>
+```
+
+5-15 lines. Knowledge, not chronology.
+
+---
+
+## `progress.md` entry (append)
+
+```markdown
+## YYYY-MM-DD
+
+### <Topic>
+- <what was done, 3-5 bullets>
+- Tests: N green, coverage X%
+- Next step: <what comes next>
+```
+
+Append ONLY to the end of the file. Never edit old entries.
+
+---
+
+## `lessons.md` entry
+
+```markdown
+### <Pattern name> (EXP-NNN / source)
+<Problem description. What happened.>
+<Fix. How it was corrected or avoided.>
+<General pattern. When it may recur.>
+```
+
+2-4 lines. Group by categories (`ML Architecture`, `ML Methodology`, `Testing`, etc.).
+
+---
+
+## Hypothesis in `research.md`
+
+```markdown
+| H-NNN | <Hypothesis (SMART: specific, measurable)> | ⬜ Not tested | — | — | — |
+```
+
+Statuses: `⬜ Not tested` → `🔬 Testing` → `✅ Confirmed` / `❌ Refuted`
+
+---
+
+## ADR in `backlog.md`
+
+```markdown
+- ADR-NNN: <Decision> — <context, considered alternatives, consequences> [YYYY-MM-DD]
+```
+
+---
+
+## Experiment (`experiments/EXP-NNN.md`)
+
+```markdown
+# EXP-NNN: <Title>
+
+## Hypothesis
+H-NNN: <hypothesis text>
+
+## Setup
+- Baseline: <baseline configuration description>
+- Treatment: <ONE change relative to the baseline>
+- Metric: <what is measured, how success is defined>
+- Horizon: <N episodes, seeds>
+- Configuration: <key hyperparameters>
+
+## Results
+
+| Metric | Baseline | Treatment | Delta | p-value | Cohen's d |
+|--------|----------|-----------|-------|---------|-----------|
+| reward |          |           |       |         |           |
+| entropy|          |           |       |         |           |
+
+## Conclusions
+- <main finding>
+- <what it means for the project>
+
+## Next steps
+- <what to do next based on the results>
+
+## Status: ⬜ Pending / 🔬 Running / ✅ Done / ❌ Failed
+```
+
+Principle: one change per experiment (single-change policy).
+
+---
+
+## Plan decomposition — Phase → Sprint → Stage
+
+Formal 3-level hierarchy for planning. **Choose the level by the size of the work — not everything needs to be wrapped in a Phase.**
+
+> **Canonical decomposition note:** When a spec exists under `specs/<topic>/`, the
+> `tasks.md` file is the canonical decomposition. Plan files act as sprint slices
+> (via `linked_spec` frontmatter) or standalone tactical wrappers when no spec
+> exists. Do not duplicate task definitions in both plan stages and spec tasks.
+
+| Level | Purpose | Size threshold | Context |
+|-------|---------|----------------|---------|
+| **Stage** | Atomic unit of work. Marker `<!-- mb-stage:N -->` inside a plan file | 1-5 files, ~5-15 tests, 5-30 min | Fits in one tool series |
+| **Sprint** | Group of related Stages sharing the same architectural context. = **one plan file** | 3-7 stages, ≤15 files, ≤60 tests, ~3000 lines of new code | **≤ 200k tokens** (one session) |
+| **Phase** | Major direction with ≥2 Sprints and dependencies between them | ≥2 Sprints, > 1 week of work, has roadmap/gates | Multiple plan files |
+
+### When to use which level
+
+| Work size | Structure | Example |
+|-----------|-----------|---------|
+| ≤ 3 stages, 1 session | **Plain plan**, no Phase/Sprint | Bugfix, small refactor |
+| 3-7 stages, several days | One **Sprint** = one plan file | New mid-size feature |
+| ≥ 2 Sprints with dependencies | **Phase** = roadmap + multiple plan files (one per Sprint) | Large initiative |
+
+### 🔴 Hard rule — 200k context window per Sprint
+
+**One Sprint must fit in a single Claude 200k-token context** — from reading code to final verification and Memory Bank actualization.
+
+Budget per Sprint (indicative):
+- ~30k — reading inputs (source files + plan + checklist)
+- ~30k — planning + TDD red phase
+- ~100k — implementation
+- ~30k — verification + test runs + output
+- ~10k — buffer for errors and corrections
+
+**If you estimate a Sprint at >200k — split it into 2 Sprints** along an architectural boundary. Two clean Sprints beat one truncated Sprint.
+
+**Symptoms that require a split:**
+- > 5 large files (>500 lines each) to read
+- > 15 new/modified files
+- > 3000 lines of new code
+- > 60 new tests
+- cross-layer refactor (core + service + infra all at once, all large)
+
+### Required per Stage — SMART DoD
+
+Each Stage in a plan file must have:
+- **Title** — what is being done
+- **Actions** — concrete files/functions
+- **Tests (TDD — BEFORE implementation)** — unit / integration / e2e where applicable
+- **DoD** (SMART: Specific / Measurable / Achievable / Relevant / Time-bound) as checkboxes; each item answers «how do we verify?»
+- **Code rules** — one-line reference to principles (TDD/SOLID/DRY/KISS/Clean Arch)
+
+### Required per Sprint — Gate
+
+Every plan file ends with `## Gate` — the single success criterion. Without a Gate, it's not a Sprint.
+
+### Terminology
+
+Use **Phase / Sprint / Stage** exactly. "Этап" is accepted historically in existing plans (= Stage), but new plans should use the English triple for consistency.
+
+---
+
+## Plan (`plans/YYYY-MM-DD_<type>_<topic>.md`)
+
+Types: `feature`, `fix`, `refactor`, `experiment`
+
+```markdown
+# Plan: <type> — <topic>
+
+## Context
+
+**Problem:** <what triggered this plan>
+
+**Expected result:** <what should be achieved>
+
+**Related files:**
+- <links to code, specs, experiments>
+
+---
+
+## Stages
+
+### Stage 1: <name>
+
+**What to do:**
+- <concrete actions>
+
+**Testing (TDD — tests BEFORE implementation):**
+- <unit tests: what they verify, edge cases>
+- <integration tests: which components together>
+
+**DoD (Definition of Done):**
+- [ ] <concrete, measurable criterion (SMART)>
+- [ ] tests pass
+- [ ] lint clean
+
+**Code rules:** SOLID, DRY, KISS, YAGNI, Clean Architecture
+
+---
+
+### Stage 2: <name>
+
+**What to do:**
+- 
+
+**Testing (TDD):**
+- 
+
+**DoD:**
+- [ ]
+
+---
+
+## Risks and mitigation
+
+| Risk | Probability | Mitigation |
+|------|-------------|------------|
+| <risk> | H/M/L | <how to prevent it> |
+
+## Gate (plan success criterion)
+
+<When the plan is considered fully complete>
+```
+
+---
+
+## New Memory Bank initialization (`/mb init`)
+
+Creates the minimal structure:
+
+```text
+.memory-bank/
+├── status.md       # Header + "Current phase: Start"
+├── roadmap.md         # Header + "Current focus: define"
+├── checklist.md    # Header + empty checklist
+├── research.md     # Header + empty hypothesis table
+├── backlog.md      # Header + empty sections
+├── progress.md     # Header
+├── lessons.md      # Header
+├── experiments/    # Empty; filled by experiment authors (EXP-NNN.md)
+├── plans/          # Empty; filled by /mb plan (YYYY-MM-DD_<type>_<topic>.md)
+│   └── done/       # Empty; archived plans move here via /mb plan-done
+├── notes/          # Empty; filled by /mb note (YYYY-MM-DD_HH-MM_<topic>.md)
+├── reports/        # Empty; free-form reports useful to future sessions
+└── codebase/       # Empty; populated by /mb map (mb-codebase-mapper subagent)
+                    #   STACK.md / ARCHITECTURE.md / CONVENTIONS.md / CONCERNS.md
+                    #   Optional: graph.json + god-nodes.md via /mb graph --apply
+                    #   Consumed by /mb context (summaries) and --deep (full)
+```
+
+---
+
+## Drift checks (`scripts/mb-drift.sh`)
+
+Deterministic consistency checks for `.memory-bank/` without AI calls. `mb-doctor` uses it in step 0 to save tokens when the bank is already clean.
+
+### Usage
+
+```bash
+# Current project
+bash ~/.claude/skills/memory-bank/scripts/mb-drift.sh .
+
+# Another project
+bash ~/.claude/skills/memory-bank/scripts/mb-drift.sh /path/to/project
+```
+
+### Output (stdout — `key=value`)
+
+```text
+drift_check_path=ok
+drift_check_staleness=ok
+drift_check_script_coverage=ok
+drift_check_dependency=skip
+drift_check_cross_file=ok
+drift_check_index_sync=skip
+drift_check_command=ok
+drift_check_frontmatter=ok
+drift_warnings=0
+```
+
+**Values:** `ok` (no problems), `warn` (drift found), `skip` (check not applicable — for example `dependency=skip` if there is no `pyproject.toml` / `package.json` / `go.mod`).
+
+Diagnostic messages go to stderr with the `[drift:<name>]` prefix.
+
+**Exit code:** 0 when `drift_warnings=0`, otherwise 1 (works for a pre-commit hook).
+
+### 8 checkers
+
+| Name | What it checks |
+|------|-----------------|
+| `path` | Links like `notes/X.md`, `plans/X.md`, `reports/X.md`, `experiments/X.md` in core files actually exist |
+| `staleness` | `status.md` / `roadmap.md` / `checklist.md` / `progress.md` have not been untouched for >30 days |
+| `script_coverage` | `bash scripts/X.sh` references point to existing files (project-local or skill-local) |
+| `dependency` | Python version in `status.md` matches `pyproject.toml` (if present) |
+| `cross_file` | Counts like "N bats green" are consistent across `status.md`, `checklist.md`, `progress.md` |
+| `index_sync` | `index.json` mtime is newer than all `notes/*.md` files (otherwise reindexing is needed) |
+| `command` | `npm run X` / `make X` references point to existing scripts/targets |
+| `frontmatter` | `notes/*.md` files starting with `---` also contain a closing fence |
+
+### Integration with `mb-doctor`
+
+`mb-doctor` runs `mb-drift.sh` first:
+- `drift_warnings=0` → report "ok", no LLM analysis needed
+- `drift_warnings>0` → read warnings and then run agent Steps 1-4 (cross-reference checks, Edit fixes)
+
+This saves ~80% of tokens in standard cases where the bank is already clean.
+
+### Pre-commit hook (optional)
+
+```bash
+# .git/hooks/pre-commit
+#!/bin/bash
+bash ~/.claude/skills/memory-bank/scripts/mb-drift.sh . || {
+  echo "Memory Bank drift detected — run /mb doctor to fix"
+  exit 1
+}
+```
+
+---
+
+## Custom metrics override (`.memory-bank/metrics.sh`)
+
+Optional file. If present, `mb-metrics.sh` calls it instead of auto-detect. Use it when:
+- the project has a non-standard structure (monorepo, multiple languages together)
+- you need project-specific metrics (custom test runner, Kubernetes readiness, ML reward, etc.)
+- auto-detect returns `stack=unknown`
+
+The script must print `key=value` lines to stdout:
+
+```bash
+#!/usr/bin/env bash
+# .memory-bank/metrics.sh — custom metrics for this project.
+
+set -euo pipefail
+
+echo "stack=custom"                       # arbitrary label
+echo "test_cmd=make test"                 # how to run tests
+echo "lint_cmd=make lint"                 # how to lint
+echo "src_count=$(find src -type f | wc -l | tr -d ' ')"
+
+# Any extra metrics (passed through to MB Manager as-is):
+echo "coverage=$(coverage report | tail -1 | awk '{print $4}')"
+echo "reward_mean=$(jq '.mean' results.json)"
+```
+
+After creating it, run `chmod +x .memory-bank/metrics.sh`. Validation: `bash scripts/mb-metrics.sh` should return `source=override` instead of `source=auto`.
+
+## Context (`context/<topic>.md`) — `/mb discuss` output (Phase 2 SDD)
+
+Captured by the 5-phase requirements-elicitation interview. Source for `mb-traceability-gen.sh` REQ → Plan → Test matrix.
+
+```markdown
+---
+topic: <topic>
+created: YYYY-MM-DD
+status: draft | ready
+---
+
+# Context: <topic>
+
+## Purpose & Users
+
+Who uses this, what problem does it solve, what are the success criteria?
+
+## Functional Requirements (EARS)
+
+Each line uses one of the 5 EARS patterns (Ubiquitous / Event-driven / State-driven / Optional / Unwanted).
+IDs are project-wide monotonic — get the next one via `bash scripts/mb-req-next-id.sh`.
+
+- **REQ-001** (ubiquitous): The system shall ...
+- **REQ-002** (event-driven): When <trigger>, the system shall ...
+- **REQ-003** (state-driven): While <state>, the system shall ...
+- **REQ-004** (optional): Where <feature>, the system shall ...
+- **REQ-005** (unwanted): If <trigger>, then the system shall ...
+
+## Non-Functional Requirements
+
+- **NFR-001**: Performance — ...
+- **NFR-002**: Security — ...
+- **NFR-003**: Scale — ...
+
+## Constraints
+
+Hard limits (regulatory, technical, organizational) that cannot be relaxed.
+
+## Edge Cases & Failure Modes
+
+What breaks at the boundaries? What happens when dependencies fail?
+
+## Out of Scope
+
+Explicitly excluded — to prevent scope creep during planning.
+```
+
+Validate REQ lines via `bash scripts/mb-ears-validate.sh context/<topic>.md`. Exit 0 = all valid; exit 1 = violations on stderr.
+
+## Spec Requirements (`specs/<topic>/requirements.md`) — Phase 2 Sprint 2
+
+EARS-only requirement list. Created by `bash scripts/mb-sdd.sh <topic>`. If `context/<topic>.md` exists, the EARS section is copied verbatim.
+
+```markdown
+# Requirements: <topic>
+
+> Spec triple — see also: design.md, tasks.md.
+>
+> EARS patterns:
+> - Ubiquitous:        `The <system> shall <response>`
+> - Event-driven:      `When <trigger>, the <system> shall <response>`
+> - State-driven:      `While <state>, the <system> shall <response>`
+> - Optional feature:  `Where <feature>, the <system> shall <response>`
+> - Unwanted:          `If <trigger>, then the <system> shall <response>`
+
+## Requirements (EARS)
+
+- **REQ-NNN** (ubiquitous): The system shall ...
+```
+
+## Spec Design (`specs/<topic>/design.md`) — Phase 2 Sprint 2
+
+Architecture + interfaces + decisions backing `requirements.md`.
+
+```markdown
+# Design: <topic>
+
+## Architecture
+
+<!-- Layering, data flow, dependency direction. -->
+
+## Interfaces
+
+<!-- Protocol/ABC/interface definitions that anchor contract tests. -->
+
+## Decisions
+
+<!-- ADR-style entries: Context / Options / Decision / Rationale / Consequences. -->
+
+## Risks & mitigation
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+|      | H/M/L       | H/M/L  |            |
+```
+
+## Spec Tasks (`specs/<topic>/tasks.md`) — executable task format
+
+`specs/<topic>/tasks.md` is a **first-class executable artifact**. Each task is wrapped
+in `<!-- mb-task:N -->` markers so `mb_work_items.py` (and `/mb work <topic>`) can parse
+and execute it. Spec tasks are the canonical decomposition; plan files may reference them
+as sprint slices via `linked_spec` frontmatter.
+
+Validate with `bash scripts/mb-spec-validate.sh <topic>` before running `/mb work`.
+Upgrade legacy `## N. ...` style with `bash scripts/mb-spec-tasks-migrate.sh <topic>`.
+
+```markdown
+# Tasks: <topic>
+
+<!-- mb-task:1 -->
+## 1. <task title>
+
+**Covers:** REQ-NNN
+**Role:** <implementer role, e.g. backend>
+**What:** <concrete actions — files, functions, behaviour>
+**Testing:** <unit tests: X; integration tests: Y>
+**DoD:**
+- [ ] concrete, measurable criterion (SMART)
+- [ ] tests pass
+- [ ] lint clean
+<!-- /mb-task:1 -->
+
+<!-- mb-task:2 -->
+## 2. <next task title>
+
+**Covers:** REQ-NNN
+**Role:** <role>
+**What:** ...
+**Testing:** ...
+**DoD:**
+- [ ] ...
+<!-- /mb-task:2 -->
+```
+
+---
+
+## Plan as execution wrapper
+
+A plan file can be a thin sprint slice over an existing spec. Declare the link in
+YAML frontmatter at the top of the plan file:
+
+```yaml
+---
+linked_spec: specs/inventory-sync
+tasks: 1-3
+---
+```
+
+`linked_spec` — path to the spec directory (relative to `.memory-bank/`).
+`tasks` — optional range; limits `/mb work` to that task subset for sprint slicing.
+
+The plan basename is used for traceability only. Spec tasks remain the source of truth.

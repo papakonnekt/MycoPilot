@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  myco-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: myco-scheduler
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3001
+      - DB_PATH=/app/data/myco.db
+      - PUBLIC_DIR=/app/server/public
+      - CORS_ORIGIN=*
+      # Git credentials for backup.sh can be passed here or in a .env file
+      - GITHUB_PAT=${GITHUB_PAT:-}
+      - GITHUB_REPO=${GITHUB_REPO:-papakonnekt/myco-operations}
+      - GITHUB_BRANCH=${GITHUB_BRANCH:-main}
+    restart: unless-stopped

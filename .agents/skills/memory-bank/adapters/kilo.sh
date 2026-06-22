@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# adapters/kilo.sh — Kilo Code cross-agent adapter.
+#
+# Kilo is the only target client without a first-class hooks API
+# (FR Kilo-Org/kilocode#5827 open). Adapter writes .kilocode/rules/memory-bank.md
+# and installs git-hooks-fallback for lifecycle events.
+#
+# Usage:
+#   adapters/kilo.sh install [PROJECT_ROOT]
+#   adapters/kilo.sh uninstall [PROJECT_ROOT]
+
+set -euo pipefail
+
+ACTION="${1:-}"
+PROJECT_ROOT_RAW="${2:-$(pwd)}"
+
+if [ ! -d "$PROJECT_ROOT_RAW" ]; then
+  echo "[kilo-adapter] project root not found: $PROJECT_ROOT_RAW" >&2
+  exit 1
+fi
+PROJECT_ROOT="$(cd "$PROJECT_ROOT_RAW" && pwd)"
+
+SKILL_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ADAPTERS_DIR="$SKILL_DIR/adapters"
+KILO_DIR="$PROJECT_ROOT/.kilocode"
+RULES_FILE="$KILO_DIR/rules/memory-bank.md"
+MANIFEST="$KILO_DIR/.mb-manifest.json"
+GIT_FALLBACK="$ADAPTERS_DIR/git-hooks-fallback.sh"
+
+# shellcheck disable=SC1091
+. "$(dirname "$0")/_lib_agents_md.sh"
+# shellcheck disable=SC1091
+. "$(dirname "$0")/_framework.sh"
+# shellcheck disable=SC1091
+. "$(dirname "$0")/_contract.sh"
+require_git() {
+  if [ ! -d "$PROJECT_ROOT/.git" ]; then
+    echo "[kilo-adapter] Kilo requires git repo (git-hooks-fallback is mandatory — no native hooks API)" >&2
+    exit 1
+  fi
+}
+
+install_kilo() {
+  adapter_require_jq "kilo-adapter" || exit 1
+  require_git
+  mkdir -p "$KILO_DIR/rules"
+
+  # 1. Rules file
+  {
+    echo '# Memory Bank — Project Rules'
+    echo ''
+    echo 'This project uses the Memory Bank skill for long-term memory + dev workflow.'
+    echo ''
+    echo '**Workflow:**'
+    echo '- Start of session: read `.memory-bank/status.md`, `checklist.md`, `roadmap.md`, `research.md`'
+    echo '- Update `checklist.md` immediately (⬜ → ✅) when tasks done'
+    echo '- Before context window fill: manual actualize'
+    echo ''
+    if [ -f "$SKILL_DIR/rules/RULES.md" ]; then
+      echo '---'
+      echo ''
+      echo '# Global Rules'
+      echo ''
+      mb_emit_rules_file "$SKILL_DIR/rules/RULES.md"
+    fi
+  } > "$RULES_FILE"
+
+  # 2. Install git-hooks-fallback (mandatory — Kilo has no native hooks)
+  bash "$GIT_FALLBACK" install "$PROJECT_ROOT" >/dev/null
+
+  # 3. Manifest
+  local files_json
+  files_json=$(printf '%s\n' "$RULES_FILE" | adapter_json_array_from_lines)
+  adapter_write_manifest \
+    "$MANIFEST" \
+    "kilo" \
+    "$(cat "$SKILL_DIR/VERSION" 2>/dev/null || echo unknown)" \
+    "$files_json" \
+    '{"git_hooks_installed": true}'
+
+  echo "[kilo-adapter] installed to $PROJECT_ROOT"
+}
+
+uninstall_kilo() {
+  if [ ! -f "$MANIFEST" ]; then
+    echo "[kilo-adapter] no manifest found, nothing to uninstall"
+    return 0
+  fi
+  adapter_require_jq "kilo-adapter" || exit 1
+
+  # 1. Remove tracked files
+  adapter_remove_manifest_files "$MANIFEST"
+
+  # 2. Uninstall git-hooks-fallback if we installed it
+  local installed_git
+  installed_git=$(jq -r '.git_hooks_installed // false' "$MANIFEST")
+  if [ "$installed_git" = "true" ]; then
+    bash "$GIT_FALLBACK" uninstall "$PROJECT_ROOT" >/dev/null
+  fi
+
+  # 3. Remove manifest
+  rm -f "$MANIFEST"
+
+  # 4. Clean empty dirs (only if we were sole owner)
+  rmdir "$KILO_DIR/rules" 2>/dev/null || true
+  rmdir "$KILO_DIR" 2>/dev/null || true
+
+  echo "[kilo-adapter] uninstalled from $PROJECT_ROOT"
+}
+
+case "$ACTION" in
+  install)   install_kilo ;;
+  uninstall) uninstall_kilo ;;
+  *)
+    echo "Usage: $0 install|uninstall [PROJECT_ROOT]" >&2
+    exit 1
+    ;;
+esac
+
+adapter_contract_require_functions install_kilo uninstall_kilo >/dev/null

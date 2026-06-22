@@ -1,0 +1,43 @@
+.installed-manifest.json
+*.backup.*
+*.pre-mb-backup.*
+.DS_Store
+.env
+*.env
+*.pem
+*.key
+*.secret
+__pycache__/
+*.pyc
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
+# Claude Code harness runtime (local CLI state — never part of the skill).
+/.claude/
+
+# Build artifacts
+/dist/
+/build/
+*.egg-info/
+
+# Cross-agent adapter output from dogfood / test installs in this repo
+# (the skill writes these into any project where `/install` runs — when we
+# dogfood, they end up at the repo root and shouldn't be tracked).
+/.cursor/
+/.windsurf/
+/.clinerules/
+/.kilocode/
+/.codex/
+/.opencode/
+/.mb-agents-owners.json
+/.mb-pi-manifest.json
+/opencode.json
+/AGENTS.md
+
+# Memory Bank runtime artifacts — created/deleted per session, never tracked.
+.memory-bank/.session-lock
+.memory-bank/.auto-lock
+.memory-bank/.checklist.md.bak.*
+.memory-bank/codebase/.cache/

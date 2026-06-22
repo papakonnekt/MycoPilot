@@ -1,0 +1,31 @@
+# Dependency directories
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# Build outputs
+client/dist/
+server/dist/
+*.log
+
+# Local Database & Docker Volume Persistence
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+data/
+
+# Environment configurations
+.env
+.env.local
+.env.*.local
+
+# IDE & Editor files
+.vscode/
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp

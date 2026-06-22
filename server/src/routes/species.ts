@@ -1,0 +1,56 @@
+import { Router, Request, Response } from 'express';
+import { getDb } from '../db/database';
+
+const router = Router();
+
+// ── GET /api/species ──────────────────────────────────────────
+router.get('/', (_req: Request, res: Response) => {
+  const db = getDb();
+  try {
+    const species = db.prepare(`
+      SELECT s.*, sp.*, ft.min_gen2_bags, ft.target_gen2_bags,
+        fs.net_available AS fridge_stock,
+        fs.below_threshold AS fridge_low,
+        wt.target_blocks_per_wk AS weekly_target
+      FROM species s
+      LEFT JOIN species_profile sp ON sp.species_id = s.id AND sp.effective_to IS NULL
+      LEFT JOIN fridge_thresholds ft ON ft.species_id = s.id
+      LEFT JOIN fridge_summary fs ON fs.species_id = s.id
+      LEFT JOIN weekly_targets wt ON wt.species_id = s.id AND wt.is_active = 1
+      WHERE s.is_active = 1
+    `).all();
+
+    res.json({ success: true, data: species });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── GET /api/species/:id/lineages ─────────────────────────────
+router.get('/:id/lineages', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+
+  try {
+    const lineages = db.prepare(`
+      SELECT l.*,
+        (SELECT COUNT(*) FROM harvest_record hr
+          JOIN batch b ON b.id = hr.batch_id
+          WHERE b.lineage_id = l.id) AS total_harvests,
+        (SELECT AVG(hr.biological_efficiency) FROM harvest_record hr
+          JOIN batch b ON b.id = hr.batch_id
+          WHERE b.lineage_id = l.id
+            AND hr.harvest_date >= date('now', '-90 days')
+            AND hr.biological_efficiency IS NOT NULL) AS avg_be_90d
+      FROM lineage l
+      WHERE l.species_id = ?
+      ORDER BY l.is_senescent ASC, l.created_at DESC
+    `).all(id);
+
+    res.json({ success: true, data: lineages });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+export default router;
