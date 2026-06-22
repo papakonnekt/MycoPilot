@@ -183,7 +183,7 @@ export default function SettingsView() {
 
   return (
     <SettingsReady
-      key={state.data.hardware.id + ':' + state.data.species.length}
+      key={(state.data.hardware?.id ?? 'none') + ':' + (state.data.species?.length ?? 0)}
       data={state.data}
       onReload={load}
     />
@@ -303,7 +303,7 @@ function SettingsReady({
     try {
       const result = await runScheduler()
       setRunStatus('saved')
-      setToast(`Scheduler ran · ${result.tasksGenerated} tasks · ${result.warningCount} warnings`)
+      setToast(`Scheduler ran · ${result.tasksCreated} tasks · ${result.warnings.length} warnings`)
       window.setTimeout(() => setToast(null), 3500)
       onReload()
     } catch (err) {

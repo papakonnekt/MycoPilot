@@ -519,7 +519,7 @@ function StatTile({
   tone = 'ink',
   icon,
 }: {
-  label: string
+  label: React.ReactNode | string
   value: string
   tone?: 'ink' | 'amber' | 'brick'
   icon?: React.ReactNode

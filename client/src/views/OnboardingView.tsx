@@ -32,7 +32,18 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
     setError(null)
     try {
       await setupSettings({
-        hardware,
+        hardware: {
+          max_pc_runs_per_day: hardware.maxPcRunsPerDay,
+          max_bags_per_pc_run: hardware.maxBagsPerPcRun,
+          grain_cycle_mins: hardware.grainCycleMins,
+          grain_prep_cool_mins: hardware.grainPrepCoolMins,
+          bulk_cycle_mins: hardware.bulkCycleMins,
+          bulk_prep_cool_mins: hardware.bulkPrepCoolMins,
+          microlab_cycle_mins: hardware.microlabCycleMins,
+          microlab_prep_cool_mins: hardware.microlabPrepCoolMins,
+          daily_available_mins: hardware.dailyAvailableMins,
+          scheduling_horizon_days: hardware.schedulingHorizonDays,
+        },
         species: [{
           commonName: speciesName,
           substrateType: 'HWFP',

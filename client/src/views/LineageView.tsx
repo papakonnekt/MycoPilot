@@ -900,7 +900,7 @@ function StatTile({
   tone = 'ink',
   icon,
 }: {
-  label: string
+  label: React.ReactNode | string
   value: string
   tone?: 'ink' | 'amber' | 'brick'
   icon?: React.ReactNode
@@ -1073,7 +1073,7 @@ function NewLineageModal({
       const { createLineage } = await import('../lib/api')
       await createLineage(speciesId, {
         lineage_code: lineageCode,
-        generation_number: generation,
+        generation_count: generation,
         is_senescent: false,
       })
       onSuccess()

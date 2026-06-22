@@ -354,7 +354,7 @@ function IncubatingReady({
 
         <button
           type="button"
-          onClick={onReload}
+          onClick={() => onReload()}
           aria-label="Refresh"
           className="sr-only"
         />
@@ -986,8 +986,6 @@ function NewBatchModal({
         species_id: Number(speciesId),
         lineage_id: lineageId ? Number(lineageId) : null,
         stage,
-        container_type: stage.includes('GRAIN') ? 'JAR_QUART' : 'BAG_5LB',
-        substrate_type: stage.includes('GRAIN') ? 'MILLET' : 'MASTERS_MIX',
       })
       onSuccess()
     } catch (err: any) {
@@ -1031,7 +1029,7 @@ function NewBatchModal({
             >
               <option value="">None</option>
               {lineages.map(l => (
-                <option key={l.id} value={l.id}>{l.lineage_code} (Gen {l.generation_number})</option>
+                <option key={l.id} value={l.id}>{l.lineage_code} (Gen {l.generation_count})</option>
               ))}
             </select>
           </div>
