@@ -8,6 +8,11 @@ router.get('/', (_req: Request, res: Response) => {
   const db = getDb();
   try {
     const hw = db.prepare(`SELECT * FROM hardware_settings WHERE is_active = 1 LIMIT 1`).get();
+    
+    if (!hw) {
+      return res.json({ success: true, data: { isSetup: false } });
+    }
+
     const species = db.prepare(`
       SELECT s.*, sp.*
       FROM species s
@@ -26,7 +31,77 @@ router.get('/', (_req: Request, res: Response) => {
       WHERE wt.is_active = 1
     `).all();
 
-    res.json({ success: true, data: { hardware: hw, species, fridgeThresholds: thresholds, weeklyTargets: targets } });
+    res.json({ success: true, data: { isSetup: true, hardware: hw, species, fridgeThresholds: thresholds, weeklyTargets: targets } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── POST /api/settings/setup ──────────────────────────────────
+router.post('/setup', (req: Request, res: Response) => {
+  const db = getDb();
+  const s = req.body;
+
+  try {
+    const insertHw = db.prepare(`
+      INSERT INTO hardware_settings (
+        max_pc_runs_per_day, max_bags_per_pc_run,
+        grain_cycle_mins, grain_prep_cool_mins,
+        bulk_cycle_mins, bulk_prep_cool_mins,
+        microlab_cycle_mins, microlab_prep_cool_mins,
+        daily_available_mins, scheduling_horizon_days
+      ) VALUES (
+        @maxPcRunsPerDay, @maxBagsPerPcRun,
+        @grainCycleMins, @grainPrepCoolMins,
+        @bulkCycleMins, @bulkPrepCoolMins,
+        @microlabCycleMins, @microlabPrepCoolMins,
+        @dailyAvailableMins, @schedulingHorizonDays
+      )
+    `);
+
+    db.transaction(() => {
+      insertHw.run(s.hardware);
+
+      const insertSpecies = db.prepare(`
+        INSERT INTO species (common_name, substrate_type, bulk_prep_method)
+        VALUES (@commonName, @substrateType, @bulkPrepMethod)
+      `);
+      
+      const insertProfile = db.prepare(`
+        INSERT INTO species_profile (
+          species_id,
+          lc_to_gen1_days_min, lc_to_gen1_days_max,
+          gen2_colonization_days_min, gen2_colonization_days_max,
+          bulk_colonization_days_min, bulk_colonization_days_max,
+          fruiting_days_min, fruiting_days_max,
+          gen1_to_gen2_ratio, gen2_to_bulk_spawn_pct,
+          target_biological_efficiency, senescence_threshold_pct,
+          max_generations, spore_clone_freq
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const sp of s.species) {
+        const result = insertSpecies.run({
+          commonName: sp.commonName,
+          substrateType: sp.substrateType || 'HWFP',
+          bulkPrepMethod: sp.bulkPrepMethod || 'PC'
+        });
+        const speciesId = result.lastInsertRowid;
+        
+        insertProfile.run(
+          speciesId,
+          sp.lcToGen1DaysMin ?? 14, sp.lcToGen1DaysMax ?? 21,
+          sp.gen2ColonizationDaysMin ?? 14, sp.gen2ColonizationDaysMax ?? 21,
+          sp.bulkColonizationDaysMin ?? 14, sp.bulkColonizationDaysMax ?? 21,
+          sp.fruitingDaysMin ?? 7, sp.fruitingDaysMax ?? 14,
+          sp.gen1ToGen2Ratio ?? 10, sp.gen2ToBulkSpawnPct ?? 0.2,
+          sp.targetBiologicalEfficiency ?? 0.5, sp.senescenceThresholdPct ?? 0.2,
+          sp.maxGenerations ?? 8, sp.sporeCloneFreq ?? 3
+        );
+      }
+    })();
+
+    res.json({ success: true, message: 'Setup complete.' });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

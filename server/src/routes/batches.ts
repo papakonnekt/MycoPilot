@@ -171,4 +171,71 @@ router.get('/:id/traceback', (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/batches ──────────────────────────────────────────
+router.post('/', (req: Request, res: Response) => {
+  const db = getDb();
+  const b = req.body;
+  try {
+    const insert = db.prepare(`
+      INSERT INTO batch (
+        batch_id, species_id, lineage_id, stage, status, quantity,
+        colonization_start, colonization_target, fruiting_start, fruiting_target_end
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const result = insert.run(
+      b.batch_id || `B-${Date.now()}`,
+      b.species_id,
+      b.lineage_id || null,
+      b.stage || 'INCUBATING',
+      b.status || 'INCUBATING',
+      b.quantity || 1,
+      b.colonization_start || null,
+      b.colonization_target || null,
+      b.fruiting_start || null,
+      b.fruiting_target_end || null
+    );
+    res.json({ success: true, data: { id: result.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/batches/:id ───────────────────────────────────────
+router.put('/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const b = req.body;
+  try {
+    db.prepare(`
+      UPDATE batch SET
+        species_id = COALESCE(@species_id, species_id),
+        lineage_id = COALESCE(@lineage_id, lineage_id),
+        stage = COALESCE(@stage, stage),
+        status = COALESCE(@status, status),
+        quantity = COALESCE(@quantity, quantity),
+        colonization_start = COALESCE(@colonization_start, colonization_start),
+        colonization_target = COALESCE(@colonization_target, colonization_target),
+        fruiting_start = COALESCE(@fruiting_start, fruiting_start),
+        fruiting_target_end = COALESCE(@fruiting_target_end, fruiting_target_end),
+        updated_at = datetime('now')
+      WHERE id = @id
+    `).run({ ...b, id });
+    res.json({ success: true, message: 'Batch updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── DELETE /api/batches/:id ────────────────────────────────────
+router.delete('/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  try {
+    db.prepare(`DELETE FROM batch WHERE id = ?`).run(id);
+    res.json({ success: true, message: 'Batch deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 export default router;

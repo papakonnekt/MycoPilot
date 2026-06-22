@@ -49,6 +49,8 @@ import {
   type FridgePayload,
   type FridgeSummaryRow,
   type InventoryPayload,
+  type SpeciesRow,
+  type BatchRow,
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
@@ -116,6 +118,8 @@ export default function FridgeView() {
     error: null,
   })
 
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
   const load = useCallback(async (): Promise<void> => {
     if (loadInFlight) return loadInFlight
     setState((s) => ({ ...s, loading: true, error: null }))
@@ -161,18 +165,32 @@ export default function FridgeView() {
   }
 
   return (
-    <FridgeReady
-      key={
-        state.fridge.active.length +
-        ':' +
-        (state.fridge.active[0]?.id ?? 'empty') +
-        ':' +
-        state.inventory.fridgeSummary.length
-      }
-      inventory={state.inventory}
-      fridge={state.fridge}
-      onReload={load}
-    />
+    <>
+      <FridgeReady
+        key={
+          state.fridge.active.length +
+          ':' +
+          (state.fridge.active[0]?.id ?? 'empty') +
+          ':' +
+          state.inventory.fridgeSummary.length
+        }
+        inventory={state.inventory}
+        fridge={state.fridge}
+        onReload={(action) => {
+          if (action === 'open-modal') setIsModalOpen(true)
+          else load()
+        }}
+      />
+      {isModalOpen && (
+        <NewItemModal
+          onClose={() => setIsModalOpen(false)}
+          onSuccess={() => {
+            setIsModalOpen(false)
+            load()
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -187,7 +205,7 @@ function FridgeReady({
 }: {
   inventory: InventoryPayload
   fridge: FridgePayload
-  onReload: () => void
+  onReload: (action?: string) => void
 }) {
   const reduceMotion = useReducedMotion()
   const [toast, setToast] = useState<string | null>(null)
@@ -240,17 +258,26 @@ function FridgeReady({
       >
         {/* Header */}
         <div className="pt-2 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap min-w-0">
-            <span className="eyebrow-tag">Fridge</span>
-            <span
-              className="text-[10px] uppercase tracking-eyebrow"
-              style={{ color: 'var(--surface-muted)' }}
+          <div className="flex items-center justify-between min-w-0 mb-4">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <span className="eyebrow-tag">Fridge</span>
+              <span
+                className="text-[10px] uppercase tracking-eyebrow"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                Step 4 · Cold Storage
+              </span>
+            </div>
+            <button
+              onClick={() => onReload('open-modal')}
+              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95"
+              style={{ background: 'var(--bio-green)', color: 'var(--surface-900)' }}
             >
-              Step 4 · Cold Storage
-            </span>
+              + New Item
+            </button>
           </div>
           <h1
-            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            className="font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
             style={{ color: 'var(--surface-text)' }}
           >
             Gen 2 buffer.
@@ -267,17 +294,32 @@ function FridgeReady({
         {/* Stat row — 2 cols on mobile, 4 on md+. */}
         <div className="mt-6 md:mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatTile
-            label="Active bags"
+            label={
+              <span className="flex items-center gap-1">
+                Active bags
+                <HelpTooltip title="Active Bags" text="The total number of unexpired spawn bags currently stored in the fridge buffer." />
+              </span>
+            }
             value={String(totalActive).padStart(2, '0')}
             icon={<Snowflake size={16} weight="regular" />}
           />
           <StatTile
-            label="Below min"
+            label={
+              <span className="flex items-center gap-1">
+                Below min
+                <HelpTooltip title="Below Minimum Threshold" text="The number of species whose active spawn bag count has fallen below the configured minimum." />
+              </span>
+            }
             value={String(belowCount).padStart(2, '0')}
             tone={belowCount > 0 ? 'brick' : 'ink'}
           />
           <StatTile
-            label="Soonest expiry"
+            label={
+              <span className="flex items-center gap-1">
+                Soonest expiry
+                <HelpTooltip title="Soonest Expiry" text="The number of days until the oldest active spawn bag in the fridge expires (90-day shelf life)." />
+              </span>
+            }
             value={
               oldestDays != null
                 ? `${oldestDays}d`
@@ -295,7 +337,12 @@ function FridgeReady({
             icon={<Thermometer size={16} weight="regular" />}
           />
           <StatTile
-            label="Expired (inactive)"
+            label={
+              <span className="flex items-center gap-1">
+                Expired (inactive)
+                <HelpTooltip title="Expired Bags" text="The total number of spawn bags that have passed their 90-day shelf life and should be discarded." />
+              </span>
+            }
             value={String(totalExpired).padStart(2, '0')}
             tone={totalExpired > 0 ? 'amber' : 'ink'}
           />
@@ -918,6 +965,151 @@ function FridgeError({
       {showUrlModal && (
         <ServerUrlModal onClose={() => setShowUrlModal(false)} />
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// NEW ITEM MODAL
+// ─────────────────────────────────────────────────────────────
+
+function NewItemModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [speciesList, setSpeciesList] = useState<SpeciesRow[]>([])
+  const [batches, setBatches] = useState<BatchRow[]>([])
+  const [speciesId, setSpeciesId] = useState<number | ''>('')
+  const [batchId, setBatchId] = useState<number | ''>('')
+  const [quantity, setQuantity] = useState(1)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    Promise.all([
+      import('../lib/api').then(m => m.getSpecies()),
+      import('../lib/api').then(m => m.getBatches()),
+    ]).then(([s, b]) => {
+      setSpeciesList(s)
+      setBatches(b.filter(batch => batch.stage.includes('GRAIN') || batch.stage.includes('BULK_BLOCK')))
+      if (s.length > 0) setSpeciesId(s[0].id)
+    }).catch(err => console.error(err))
+  }, [])
+
+  const filteredBatches = useMemo(() => {
+    if (!speciesId) return []
+    return batches.filter(b => b.species_id === speciesId)
+  }, [speciesId, batches])
+
+  useEffect(() => {
+    if (filteredBatches.length > 0) {
+      setBatchId(filteredBatches[0].id)
+    } else {
+      setBatchId('')
+    }
+  }, [filteredBatches])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!speciesId || !batchId) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const { addFridgeItem } = await import('../lib/api')
+      const expires = new Date()
+      expires.setDate(expires.getDate() + 90)
+      
+      await addFridgeItem({
+        species_id: Number(speciesId),
+        batch_id: Number(batchId),
+        date_placed: new Date().toISOString().split('T')[0],
+        date_expires: expires.toISOString().split('T')[0],
+        quantity_available: quantity,
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to add item')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-surface-border rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg" style={{ color: 'var(--surface-text)' }}>New Fridge Item</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={speciesId}
+              onChange={(e) => setSpeciesId(Number(e.target.value) || '')}
+              required
+            >
+              {speciesList.map(s => (
+                <option key={s.id} value={s.id}>{s.common_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Source Batch</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={batchId}
+              onChange={(e) => setBatchId(Number(e.target.value) || '')}
+              required
+            >
+              {filteredBatches.length === 0 && <option value="">No active batches found</option>}
+              {filteredBatches.map(b => (
+                <option key={b.id} value={b.id}>{b.stage} (ID: {b.id})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 flex items-center gap-1" style={{ color: 'var(--surface-muted)' }}>
+              Quantity Available
+            </label>
+            <input
+              type="number"
+              min="1"
+              required
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={quantity}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+            />
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !speciesId || !batchId}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-bio-green text-surface-900 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? 'Adding...' : 'Add to Fridge'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

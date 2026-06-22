@@ -433,7 +433,7 @@ function FloatingTopBar({
   return (
     <div
       className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl"
-      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
+      style={{ top: 'calc(max(env(safe-area-inset-top, 0px), 24px) + 0.5rem)' }}
     >
       <div className="bezel-shell">
         <div className="bezel-core flex h-14 items-center justify-between gap-3 px-4">
@@ -532,9 +532,15 @@ function TaskGroupSection({
   return (
     <section className="min-w-0">
       <div className="px-3 mb-3 flex items-center justify-between min-w-0">
-        <span className="text-[10px] uppercase tracking-eyebrow font-semibold truncate" style={{ color: 'var(--bio-green)' }}>
-          {group.label}
-        </span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] uppercase tracking-eyebrow font-semibold truncate" style={{ color: 'var(--bio-green)' }}>
+            {group.label}
+          </span>
+          <HelpTooltip
+            title={group.label}
+            text={`Tasks grouped by the ${group.label} phase of your workflow.`}
+          />
+        </div>
         <span className="font-mono text-[10px] uppercase tracking-eyebrow text-num shrink-0" style={{ color: 'var(--surface-muted)' }}>
           {String(group.tasks.length).padStart(2, '0')}
         </span>

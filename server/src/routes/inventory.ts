@@ -123,4 +123,46 @@ router.delete('/fridge/:id/expire', (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/inventory/fridge ────────────────────────────────
+router.post('/fridge', (req: Request, res: Response) => {
+  const db = getDb();
+  const { species_id, batch_id, date_placed, date_expires, quantity_available } = req.body;
+  try {
+    const insert = db.prepare(`
+      INSERT INTO fridge_buffer (species_id, batch_id, date_placed, date_expires, quantity_available)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = insert.run(
+      species_id,
+      batch_id,
+      date_placed || new Date().toISOString().split('T')[0],
+      date_expires,
+      quantity_available || 1
+    );
+    res.json({ success: true, data: { id: result.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/inventory/fridge/:id ─────────────────────────────
+router.put('/fridge/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const b = req.body;
+  try {
+    db.prepare(`
+      UPDATE fridge_buffer SET
+        quantity_available = COALESCE(@quantity_available, quantity_available),
+        reserved_quantity = COALESCE(@reserved_quantity, reserved_quantity),
+        date_expires = COALESCE(@date_expires, date_expires),
+        updated_at = datetime('now')
+      WHERE id = @id
+    `).run({ ...b, id });
+    res.json({ success: true, message: 'Fridge entry updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 export default router;

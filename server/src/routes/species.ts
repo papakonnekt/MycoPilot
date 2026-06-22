@@ -53,4 +53,58 @@ router.get('/:id/lineages', (req: Request, res: Response) => {
   }
 });
 
+// ── POST /api/species/:id/lineages ────────────────────────────
+router.post('/:id/lineages', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { lineage_code, generation_number, is_senescent } = req.body;
+  try {
+    const insert = db.prepare(`
+      INSERT INTO lineage (species_id, lineage_code, generation_number, is_senescent)
+      VALUES (?, ?, ?, ?)
+    `);
+    const result = insert.run(
+      id,
+      lineage_code || `L-${Date.now()}`,
+      generation_number || 1,
+      is_senescent ? 1 : 0
+    );
+    res.json({ success: true, data: { id: result.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/species/lineages/:id ─────────────────────────────
+router.put('/lineages/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { lineage_code, generation_number, is_senescent } = req.body;
+  try {
+    db.prepare(`
+      UPDATE lineage SET
+        lineage_code = COALESCE(@lineage_code, lineage_code),
+        generation_number = COALESCE(@generation_number, generation_number),
+        is_senescent = COALESCE(@is_senescent, is_senescent),
+        updated_at = datetime('now')
+      WHERE id = @id
+    `).run({ lineage_code, generation_number, is_senescent, id });
+    res.json({ success: true, message: 'Lineage updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── DELETE /api/species/lineages/:id ──────────────────────────
+router.delete('/lineages/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  try {
+    db.prepare(`DELETE FROM lineage WHERE id = ?`).run(id);
+    res.json({ success: true, message: 'Lineage deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 export default router;

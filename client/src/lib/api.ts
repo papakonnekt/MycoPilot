@@ -358,10 +358,35 @@ export interface SettingsSpeciesRow {
 }
 
 export interface SettingsPayload {
-  hardware: HardwareSettingsRow
-  species: SettingsSpeciesRow[]
-  fridgeThresholds: FridgeThresholdRow[]
-  weeklyTargets: WeeklyTargetRow[]
+  isSetup: boolean
+  hardware?: HardwareSettingsRow
+  species?: SettingsSpeciesRow[]
+  fridgeThresholds?: FridgeThresholdRow[]
+  weeklyTargets?: WeeklyTargetRow[]
+}
+
+export function setupSettings(
+  payload: {
+    hardware: Partial<HardwareSettingsRow>,
+    species: Array<{
+      commonName: string,
+      substrateType?: string,
+      bulkPrepMethod?: string,
+      lcToGen1DaysMin?: number,
+      lcToGen1DaysMax?: number,
+      gen2ColonizationDaysMin?: number,
+      gen2ColonizationDaysMax?: number,
+      bulkColonizationDaysMin?: number,
+      bulkColonizationDaysMax?: number,
+      fruitingDaysMin?: number,
+      fruitingDaysMax?: number
+    }>
+  }
+): Promise<{ success: boolean; message: string }> {
+  return request('/settings/setup', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }
 
 /** /species row — joined with profile + thresholds + summary + target */
@@ -585,6 +610,201 @@ export function updateWeeklyTargets(
   })
 }
 
+  senescence_threshold_pct?: number
+  max_generations?: number
+  spore_clone_freq?: number
+  effective_from?: string
+  effective_to?: string | null
+  // thresholds
+  min_gen2_bags?: number | null
+  target_gen2_bags?: number | null
+  // fridge_summary (LEFT JOIN — may be null when no buffer)
+  fridge_stock?: number | null
+  fridge_low?: number | boolean | null
+  // weekly_targets
+  weekly_target?: number | null
+}
+
+/** /species/:id/lineages row — joined totals */
+export interface LineageRow {
+  id: number
+  species_id: number
+  lineage_code: string
+  origin_type: string
+  gen0_date: string | null
+  generation_count: number
+  is_active: number | boolean
+  is_senescent: number | boolean
+  senescence_flagged_at: string | null
+  notes: string | null
+  created_at: string
+  total_harvests?: number
+  avg_be_90d?: number | null
+}
+
+/** /scheduler/warnings payload */
+export interface SchedulerWarning {
+  type: string
+  date: string
+  message: string
+  taskRef: string
+  severity: 'INFO' | 'WARNING' | 'ERROR'
+}
+
+export interface SchedulerWarningsPayload {
+  warnings: SchedulerWarning[]
+  asOf: string | null
+}
+
+/** harvest_record row (best-effort — server doesn't expose a /harvests
+ * endpoint, but the column names match schema.sql line 263). */
+export interface HarvestRecordRow {
+  id: number
+  batch_id: number
+  bag_unit_id: number | null
+  lineage_id: number
+  flush_number: number
+  harvest_date: string
+  wet_weight_grams: number
+  dry_weight_grams: number | null
+  block_weight_grams: number | null
+  biological_efficiency: number | null
+  notes: string | null
+}
+
+// ─────────────────────────────────────────────────────────────
+// ENDPOINTS
+// ─────────────────────────────────────────────────────────────
+
+/** GET /tasks/today */
+export function getTodayTasks(): Promise<DailyViewPayload> {
+  return request<DailyViewPayload>('/tasks/today')
+}
+
+/** GET /tasks/range?from=&to= */
+export function getTasksInRange(
+  start: string,
+  end: string,
+): Promise<TaskRow[]> {
+  const qs = new URLSearchParams({ from: start, to: end }).toString()
+  return request<TaskRow[]>(`/tasks/range?${qs}`)
+}
+
+/** PATCH /tasks/:id/complete */
+export function completeTask(
+  id: string | number,
+): Promise<{ taskId: string | number; sideEffects: string[] }> {
+  return request(`/tasks/${id}/complete`, { method: 'PATCH' })
+}
+
+/** GET /batches */
+export function getBatches(): Promise<BatchRow[]> {
+  return request<BatchRow[]>('/batches')
+}
+
+/** GET /batches/incubating */
+export function getIncubatingBatches(): Promise<BatchRow[]> {
+  return request<BatchRow[]>('/batches/incubating')
+}
+
+/** PATCH /tasks/batch/:batchId/mark-spent  (server-mapped Q3 kill switch) */
+export function markBatchSpent(
+  id: string | number,
+): Promise<{ batchId: string | number; tasksKilled: number; message: string }> {
+  return request(`/tasks/batch/${id}/mark-spent`, { method: 'PATCH' })
+}
+
+/** GET /inventory */
+export function getInventory(): Promise<InventoryPayload> {
+  return request<InventoryPayload>('/inventory')
+}
+
+/** GET /inventory/fridge */
+export function getFridge(): Promise<FridgePayload> {
+  return request<FridgePayload>('/inventory/fridge')
+}
+
+/** DELETE /inventory/fridge/:id/expire */
+export function expireFridgeEntry(
+  id: string | number,
+): Promise<{ success: boolean; message: string }> {
+  return request(`/inventory/fridge/${id}/expire`, { method: 'DELETE' })
+}
+
+/** POST /inventory/restock */
+export function restockMaterial(
+  materialId: number,
+  quantity: number,
+  notes?: string,
+): Promise<{ success: boolean; message: string }> {
+  return request('/inventory/restock', {
+    method: 'POST',
+    body: JSON.stringify({ materialId, quantity, notes }),
+  })
+}
+
+/** POST /inventory/lc-restock */
+export function restockLc(
+  speciesId: number,
+  volumeMl: number,
+): Promise<{ success: boolean; message: string }> {
+  return request('/inventory/lc-restock', {
+    method: 'POST',
+    body: JSON.stringify({ speciesId, volumeMl }),
+  })
+}
+
+/** GET /settings */
+export function getSettings(): Promise<SettingsPayload> {
+  return request<SettingsPayload>('/settings')
+}
+
+/** PUT /settings/hardware */
+export function updateHardwareSettings(
+  patch: Partial<HardwareSettingsRow>,
+): Promise<{ success: boolean; message: string }> {
+  return request('/settings/hardware', {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+}
+
+/** PUT /settings/species/:id/profile */
+export function updateSpeciesProfile(
+  speciesId: number,
+  patch: {
+    lcToGen1DaysMin: number
+    lcToGen1DaysMax: number
+    gen2ColonizationDaysMin: number
+    gen2ColonizationDaysMax: number
+    bulkColonizationDaysMin: number
+    bulkColonizationDaysMax: number
+    fruitingDaysMin: number
+    fruitingDaysMax: number
+    gen1ToGen2Ratio: number
+    gen2ToBulkSpawnPct: number
+    targetBiologicalEfficiency: number
+    senescenceThresholdPct: number
+    maxGenerations: number
+    sporeCloneFreq: number
+  },
+): Promise<{ success: boolean; message: string }> {
+  return request(`/settings/species/${speciesId}/profile`, {
+    method: 'PUT',
+    body: JSON.stringify(patch),
+  })
+}
+
+/** PUT /settings/weekly-targets */
+export function updateWeeklyTargets(
+  targets: Array<{ speciesId: number; targetBlocksPerWk: number }>,
+): Promise<{ success: boolean; message: string }> {
+  return request('/settings/weekly-targets', {
+    method: 'PUT',
+    body: JSON.stringify({ targets }),
+  })
+}
+
 /** GET /species */
 export function getSpecies(): Promise<SpeciesRow[]> {
   return request<SpeciesRow[]>('/species')
@@ -604,10 +824,42 @@ export function getSchedulerWarnings(): Promise<SchedulerWarningsPayload> {
 
 /** POST /scheduler/run */
 export function runScheduler(): Promise<{
-  tasksGenerated: number
-  warnings: SchedulerWarning[]
-  warningCount: number
-  horizon: string
+  tasksCreated: number
+  warnings: string[]
 }> {
   return request('/scheduler/run', { method: 'POST' })
+}
+
+// ── CRUD Helpers ──────────────────────────────────────────────
+
+export function createBatch(data: Partial<BatchRow>): Promise<{ id: number }> {
+  return request('/batches', { method: 'POST', body: data })
+}
+
+export function updateBatch(id: string | number, data: Partial<BatchRow>): Promise<void> {
+  return request(`/batches/${id}`, { method: 'PUT', body: data })
+}
+
+export function deleteBatch(id: string | number): Promise<void> {
+  return request(`/batches/${id}`, { method: 'DELETE' })
+}
+
+export function createLineage(speciesId: number | string, data: Partial<LineageRow>): Promise<{ id: number }> {
+  return request(`/species/${speciesId}/lineages`, { method: 'POST', body: data })
+}
+
+export function updateLineage(id: number | string, data: Partial<LineageRow>): Promise<void> {
+  return request(`/species/lineages/${id}`, { method: 'PUT', body: data })
+}
+
+export function deleteLineage(id: number | string): Promise<void> {
+  return request(`/species/lineages/${id}`, { method: 'DELETE' })
+}
+
+export function addFridgeItem(data: any): Promise<{ id: number }> {
+  return request('/inventory/fridge', { method: 'POST', body: data })
+}
+
+export function updateFridgeItem(id: number | string, data: any): Promise<void> {
+  return request(`/inventory/fridge/${id}`, { method: 'PUT', body: data })
 }

@@ -40,11 +40,11 @@ const PRIMARY_TABS: TabDef[] = [
 ]
 
 function findActiveIndex(pathname: string): number {
-  if (pathname.startsWith('/settings')) return 4
+  if (pathname.startsWith('/settings')) return -1
   const idx = PRIMARY_TABS.findIndex((t) =>
     t.matchPaths.some((p) => (p === '/' ? pathname === '/' : pathname.startsWith(p))),
   )
-  return idx === -1 ? 0 : idx
+  return idx
 }
 
 export function MobileBottomNav() {
@@ -63,7 +63,11 @@ export function MobileBottomNav() {
   const recalc = () => {
     const el = tabRefs.current[activeIndex]
     const rail = railRef.current
-    if (!el || !rail) return
+    if (!rail) return
+    if (!el || activeIndex === -1) {
+      setIndicator({ left: 0, width: 0 })
+      return
+    }
     const elRect  = el.getBoundingClientRect()
     const railRect = rail.getBoundingClientRect()
     setIndicator({ left: elRect.left - railRect.left, width: elRect.width })
@@ -109,6 +113,7 @@ export function MobileBottomNav() {
                   boxShadow: '0 0 16px rgba(52, 212, 104, 0.4), 0 0 32px rgba(52, 212, 104, 0.15)',
                   transform: `translate(${indicator.left}px, -50%)`,
                   width: indicator.width,
+                  opacity: indicator.width === 0 ? 0 : 1,
                   transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
                 }}
               />

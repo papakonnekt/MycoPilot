@@ -140,6 +140,8 @@ export default function LineageView() {
     return loadInFlight
   }, [])
 
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
   const loadRef = useRef(load)
   useEffect(() => {
     loadRef.current = load
@@ -154,21 +156,34 @@ export default function LineageView() {
   }
 
   return (
-    <LineageReady
-      key={
-        state.species.length +
-        ':' +
-        state.batches.length +
-        ':' +
-        Object.values(state.lineagesBySpecies).reduce(
-          (s, arr) => s + arr.length,
-          0,
-        )
-      }
-      species={state.species}
-      lineagesBySpecies={state.lineagesBySpecies}
-      batches={state.batches}
-    />
+    <>
+      <LineageReady
+        key={
+          state.species.length +
+          ':' +
+          state.batches.length +
+          ':' +
+          Object.values(state.lineagesBySpecies).reduce(
+            (s, arr) => s + arr.length,
+            0,
+          )
+        }
+        species={state.species}
+        lineagesBySpecies={state.lineagesBySpecies}
+        batches={state.batches}
+        onAddLineage={() => setIsModalOpen(true)}
+      />
+      {isModalOpen && (
+        <NewLineageModal 
+          species={state.species}
+          onClose={() => setIsModalOpen(false)} 
+          onSuccess={() => {
+            setIsModalOpen(false)
+            load()
+          }} 
+        />
+      )}
+    </>
   )
 }
 
@@ -180,10 +195,12 @@ function LineageReady({
   species,
   lineagesBySpecies,
   batches,
+  onAddLineage,
 }: {
   species: SpeciesRow[]
   lineagesBySpecies: Record<number, LineageRow[]>
   batches: BatchRow[]
+  onAddLineage: () => void
 }) {
   const reduceMotion = useReducedMotion()
 
@@ -236,17 +253,26 @@ function LineageReady({
       >
         {/* Header */}
         <div className="pt-2 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap min-w-0">
-            <span className="eyebrow-tag">Lineage</span>
-            <span
-              className="text-[10px] uppercase tracking-eyebrow"
-              style={{ color: 'var(--surface-muted)' }}
+          <div className="flex items-center justify-between min-w-0 mb-4">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <span className="eyebrow-tag">Lineage</span>
+              <span
+                className="text-[10px] uppercase tracking-eyebrow"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                Step 4 · Genetic Tracking
+              </span>
+            </div>
+            <button
+              onClick={onAddLineage}
+              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95"
+              style={{ background: 'var(--bio-green)', color: 'var(--surface-900)' }}
             >
-              Step 4 · Genetic Tracking
-            </span>
+              + New Lineage
+            </button>
           </div>
           <h1
-            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            className="font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
             style={{ color: 'var(--surface-text)' }}
           >
             Family trees.
@@ -264,21 +290,41 @@ function LineageReady({
         {/* Stat row */}
         <div className="mt-6 md:mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatTile
-            label="Lineages tracked"
+            label={
+              <span className="flex items-center gap-1">
+                Lineages tracked
+                <HelpTooltip title="Lineages Tracked" text="The total number of unique genetic strains you are actively tracking in the lab." />
+              </span>
+            }
             value={String(totalLineages).padStart(2, '0')}
             icon={<GitBranch size={16} weight="regular" />}
           />
           <StatTile
-            label="Senescent"
+            label={
+              <span className="flex items-center gap-1">
+                Senescent
+                <HelpTooltip title="Senescent Lineages" text="Strains that have aged and whose biological efficiency has dropped below the acceptable threshold." />
+              </span>
+            }
             value={String(totalFlagged).padStart(2, '0')}
             tone={totalFlagged > 0 ? 'brick' : 'ink'}
           />
           <StatTile
-            label="Active batches"
+            label={
+              <span className="flex items-center gap-1">
+                Active batches
+                <HelpTooltip title="Active Batches" text="The total number of ongoing colonization or fruiting batches connected to these lineages." />
+              </span>
+            }
             value={String(totalBatches).padStart(2, '0')}
           />
           <StatTile
-            label="Species"
+            label={
+              <span className="flex items-center gap-1">
+                Species
+                <HelpTooltip title="Species Count" text="The total number of species types you currently have configured in your lab settings." />
+              </span>
+            }
             value={String(species.length).padStart(2, '0')}
           />
         </div>
@@ -995,6 +1041,120 @@ function LineageError({
       {showUrlModal && (
         <ServerUrlModal onClose={() => setShowUrlModal(false)} />
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// NEW LINEAGE MODAL
+// ─────────────────────────────────────────────────────────────
+
+function NewLineageModal({
+  species,
+  onClose,
+  onSuccess,
+}: {
+  species: SpeciesRow[]
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [speciesId, setSpeciesId] = useState(species[0]?.id || '')
+  const [lineageCode, setLineageCode] = useState('')
+  const [generation, setGeneration] = useState(1)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!speciesId || !lineageCode) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const { createLineage } = await import('../lib/api')
+      await createLineage(speciesId, {
+        lineage_code: lineageCode,
+        generation_number: generation,
+        is_senescent: false,
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to create lineage')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-surface-border rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg" style={{ color: 'var(--surface-text)' }}>New Lineage</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={speciesId}
+              onChange={(e) => setSpeciesId(e.target.value)}
+              required
+            >
+              {species.map(s => (
+                <option key={s.id} value={s.id}>{s.common_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Lineage Code</label>
+            <input
+              type="text"
+              required
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors font-mono"
+              placeholder="e.g. BO-01"
+              value={lineageCode}
+              onChange={(e) => setLineageCode(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 flex items-center gap-1" style={{ color: 'var(--surface-muted)' }}>
+              Generation
+              <HelpTooltip title="Generation" text="The current propagation generation for this lineage. Spore prints are Gen 0. LC to Grain is usually Gen 1." />
+            </label>
+            <input
+              type="number"
+              min="0"
+              required
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={generation}
+              onChange={(e) => setGeneration(parseInt(e.target.value) || 0)}
+            />
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !lineageCode || !speciesId}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-bio-green text-surface-900 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? 'Creating...' : 'Create Lineage'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

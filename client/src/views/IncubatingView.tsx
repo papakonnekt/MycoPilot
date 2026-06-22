@@ -39,6 +39,8 @@ import {
   ApiError,
   getBatches,
   type BatchRow,
+  type SpeciesRow,
+  type LineageRow,
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
@@ -164,6 +166,8 @@ let loadInFlight: Promise<void> | null = null
 export default function IncubatingView() {
   const [state, setState] = useState<FetchState>({ kind: 'loading' })
 
+  const [isModalOpen, setIsModalOpen] = useState(false)
+
   const load = useCallback(async (): Promise<void> => {
     if (loadInFlight) return loadInFlight
     setState({ kind: 'loading' })
@@ -201,11 +205,25 @@ export default function IncubatingView() {
   }
 
   return (
-    <IncubatingReady
-      key={state.rows.length + ':' + (state.rows[0]?.id ?? 'empty')}
-      rows={state.rows}
-      onReload={load}
-    />
+    <>
+      <IncubatingReady
+        key={state.rows.length + ':' + (state.rows[0]?.id ?? 'empty')}
+        rows={state.rows}
+        onReload={(action) => {
+          if (action === 'open-modal') setIsModalOpen(true)
+          else load()
+        }}
+      />
+      {isModalOpen && (
+        <NewBatchModal
+          onClose={() => setIsModalOpen(false)}
+          onSuccess={() => {
+            setIsModalOpen(false)
+            load()
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -218,7 +236,7 @@ function IncubatingReady({
   onReload,
 }: {
   rows: BatchRow[]
-  onReload: () => void
+  onReload: (action?: string) => void
 }) {
   const active = useMemo(() => {
     const filtered = rows.filter((b) => {
@@ -270,17 +288,26 @@ function IncubatingReady({
       >
         {/* Header */}
         <div className="pt-2 min-w-0">
-          <div className="flex items-center gap-3 flex-wrap min-w-0">
-            <span className="eyebrow-tag">Incubating</span>
-            <span
-              className="text-[10px] uppercase tracking-eyebrow"
-              style={{ color: 'var(--surface-muted)' }}
+          <div className="flex items-center justify-between min-w-0 mb-4">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <span className="eyebrow-tag">Incubating</span>
+              <span
+                className="text-[10px] uppercase tracking-eyebrow"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                Step 3 · Colonization Watch
+              </span>
+            </div>
+            <button
+              onClick={() => onReload('open-modal')}
+              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95"
+              style={{ background: 'var(--bio-green)', color: 'var(--surface-900)' }}
             >
-              Step 3 · Colonization Watch
-            </span>
+              + New Batch
+            </button>
           </div>
           <h1
-            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            className="font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
             style={{ color: 'var(--surface-text)' }}
           >
             Active batches.
@@ -403,12 +430,16 @@ function FloatingTopBar({
             </span>
           </div>
           <div
-            className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-eyebrow shrink-0 whitespace-nowrap"
+            className="flex items-center gap-1 font-mono text-[11px] uppercase tracking-eyebrow shrink-0 whitespace-nowrap"
             style={{ color: 'var(--surface-muted)' }}
           >
             <span className="text-num">
               MEAN {Math.round(meanPct).toString().padStart(2, '0')}%
             </span>
+            <HelpTooltip
+              title="Mean Colonization"
+              text="The average progress of all currently incubating batches based on their expected colonization timeframes."
+            />
           </div>
         </div>
         <div className="h-px w-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
@@ -898,6 +929,147 @@ function SporeGlyph() {
           return <circle key={i} cx={x} cy={y} r="1" fill="var(--bio-green)" opacity="0.55" />
         })}
       </svg>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// NEW BATCH MODAL
+// ─────────────────────────────────────────────────────────────
+
+function NewBatchModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [speciesList, setSpeciesList] = useState<SpeciesRow[]>([])
+  const [lineages, setLineages] = useState<LineageRow[]>([])
+  const [speciesId, setSpeciesId] = useState<number | ''>('')
+  const [lineageId, setLineageId] = useState<number | ''>('')
+  const [stage, setStage] = useState('GEN1_GRAIN')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    import('../lib/api').then(({ getSpecies }) => {
+      getSpecies().then((data) => {
+        setSpeciesList(data)
+        if (data.length > 0) setSpeciesId(data[0].id)
+      }).catch(err => console.error(err))
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!speciesId) {
+      setLineages([])
+      return
+    }
+    import('../lib/api').then(({ getLineagesForSpecies }) => {
+      getLineagesForSpecies(Number(speciesId)).then((data) => {
+        setLineages(data)
+        if (data.length > 0) setLineageId(data[0].id)
+        else setLineageId('')
+      }).catch(err => console.error(err))
+    })
+  }, [speciesId])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!speciesId) return
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const { createBatch } = await import('../lib/api')
+      await createBatch({
+        species_id: Number(speciesId),
+        lineage_id: lineageId ? Number(lineageId) : null,
+        stage,
+        container_type: stage.includes('GRAIN') ? 'JAR_QUART' : 'BAG_5LB',
+        substrate_type: stage.includes('GRAIN') ? 'MILLET' : 'MASTERS_MIX',
+      })
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to create batch')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-surface-border rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg" style={{ color: 'var(--surface-text)' }}>New Batch</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={speciesId}
+              onChange={(e) => setSpeciesId(Number(e.target.value) || '')}
+              required
+            >
+              {speciesList.map(s => (
+                <option key={s.id} value={s.id}>{s.common_name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Lineage (Optional)</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={lineageId}
+              onChange={(e) => setLineageId(Number(e.target.value) || '')}
+            >
+              <option value="">None</option>
+              {lineages.map(l => (
+                <option key={l.id} value={l.id}>{l.lineage_code} (Gen {l.generation_number})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Stage</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={stage}
+              onChange={(e) => setStage(e.target.value)}
+              required
+            >
+              <option value="GEN1_GRAIN">Gen 1 Grain</option>
+              <option value="GEN2_GRAIN">Gen 2 Grain</option>
+              <option value="BULK_BLOCK">Bulk Block</option>
+              <option value="FRUITING">Fruiting</option>
+            </select>
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !speciesId}
+              className="flex-1 py-2.5 rounded-full font-semibold text-sm bg-bio-green text-surface-900 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? 'Creating...' : 'Create Batch'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

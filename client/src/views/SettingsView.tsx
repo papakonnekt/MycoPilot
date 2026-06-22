@@ -203,10 +203,10 @@ function SettingsReady({
 }) {
   const reduceMotion = useReducedMotion()
   const [hwDraft, setHwDraft] = useState<HardwareDraft>(() =>
-    toHardwareDraft(data.hardware),
+    toHardwareDraft(data.hardware!),
   )
   const [speciesDrafts, setSpeciesDrafts] = useState<SpeciesDraft[]>(() =>
-    data.species.map(toSpeciesDraft),
+    data.species!.map(toSpeciesDraft),
   )
   const [hwStatus, setHwStatus] = useState<SaveStatus>('idle')
   const [hwError, setHwError] = useState<string | null>(null)
@@ -217,7 +217,7 @@ function SettingsReady({
   const [showUrlModal, setShowUrlModal] = useState(false)
 
   const hwDirty = useMemo(() => {
-    const original = toHardwareDraft(data.hardware)
+    const original = toHardwareDraft(data.hardware!)
     return (Object.keys(original) as Array<keyof HardwareDraft>).some(
       (k) => original[k] !== hwDraft[k],
     )
