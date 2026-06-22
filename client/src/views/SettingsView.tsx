@@ -44,6 +44,9 @@ import {
   type SettingsPayload,
   type SettingsSpeciesRow,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
+import { WifiHigh } from 'phosphor-react'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -211,6 +214,7 @@ function SettingsReady({
   const [speciesError, setSpeciesError] = useState<Record<number, string | null>>({})
   const [runStatus, setRunStatus] = useState<SaveStatus>('idle')
   const [toast, setToast] = useState<string | null>(null)
+  const [showUrlModal, setShowUrlModal] = useState(false)
 
   const hwDirty = useMemo(() => {
     const original = toHardwareDraft(data.hardware)
@@ -325,80 +329,104 @@ function SettingsReady({
         <div className="pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Settings</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
-              Step 4 · Constraint Solver
-            </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1 className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-5xl leading-tight tracking-tight text-balance break-words" style={{ color: 'var(--surface-text)' }}>
             Bench configuration.
           </h1>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
+          <p className="mt-3 max-w-xl text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
             Hardware caps, cycle times, and species biological timelines. Edits
-            version-control species profiles — old versions stay queryable for
-            audit. Re-run the scheduler after a save to regenerate tasks.
+            version-control species profiles. Re-run the scheduler after a save.
           </p>
         </div>
 
         {/* Top action: Run scheduler */}
         <div className="mt-6 md:mt-7">
-          <div className="bezel-shell">
-            <div className="bezel-core flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-5 py-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="shrink-0 h-9 w-9 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
-                  <PlayCircle size={18} weight="regular" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium text-ink leading-snug break-words">
+          <div className="lab-card-accent flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-5 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+                <PlayCircle size={18} weight="regular" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <div className="font-semibold leading-snug break-words" style={{ color: 'var(--surface-text)' }}>
                     Regenerate scheduled tasks
                   </div>
-                  <div className="text-[12px] text-graphite-500 font-mono">
-                    POST /api/scheduler/run
-                  </div>
+                  <HelpTooltip
+                    title="Run Scheduler"
+                    text="Re-runs the constraint-solving engine to create, update, or cancel tasks based on the current hardware and species profiles. Safe to run anytime — idempotent."
+                  />
+                </div>
+                <div className="text-[12px] font-mono" style={{ color: 'var(--surface-muted)' }}>
+                  POST /api/scheduler/run
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={handleRunScheduler}
-                disabled={runStatus === 'saving'}
-                className={
-                  'group min-h-[44px] inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-450 ease-fluid ' +
-                  (runStatus === 'saved'
-                    ? 'bg-moss-700 text-paper'
-                    : runStatus === 'error'
-                    ? 'bg-[#B23A2A] text-paper'
-                    : 'bg-ink text-paper hover:bg-graphite-600 active:scale-[0.98]')
-                }
-              >
-                {runStatus === 'saving' ? (
-                  <CircleNotch
-                    size={14}
-                    weight="regular"
-                    className="animate-spin"
-                  />
-                ) : runStatus === 'saved' ? (
-                  <Check size={14} weight="regular" />
-                ) : (
-                  <PlayCircle
-                    size={14}
-                    weight="regular"
-                    className="transition-transform duration-450 ease-fluid group-hover:scale-[1.06]"
-                  />
-                )}
-                <span>
-                  {runStatus === 'saving'
-                    ? 'Running…'
-                    : runStatus === 'saved'
-                    ? 'Done'
-                    : runStatus === 'error'
-                    ? 'Failed'
-                    : 'Run scheduler'}
-                </span>
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={handleRunScheduler}
+              disabled={runStatus === 'saving'}
+              className={
+                'group min-h-[44px] inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-semibold transition-all duration-300 ' +
+                (runStatus === 'saved'
+                  ? 'bg-bio-green text-surface-900'
+                  : runStatus === 'error'
+                  ? 'bg-danger-dim text-danger'
+                  : 'bg-bio-green text-surface-900 active:scale-[0.97]')
+              }
+            >
+              {runStatus === 'saving' ? (
+                <CircleNotch size={14} weight="regular" className="animate-spin" />
+              ) : runStatus === 'saved' ? (
+                <Check size={14} weight="regular" />
+              ) : (
+                <PlayCircle size={14} weight="regular" className="transition-transform duration-300 group-hover:scale-[1.08]" />
+              )}
+              <span>
+                {runStatus === 'saving'
+                  ? 'Running…'
+                  : runStatus === 'saved'
+                  ? 'Done'
+                  : runStatus === 'error'
+                  ? 'Failed'
+                  : 'Run scheduler'}
+              </span>
+            </button>
           </div>
         </div>
 
-        {/* Two-column bento */}
+        {/* Server Connection card */}
+        <div className="mt-3">
+          <div className="lab-card flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-5 py-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+                <WifiHigh size={18} weight="bold" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <div className="font-semibold leading-snug" style={{ color: 'var(--surface-text)' }}>Server URL</div>
+                  <HelpTooltip
+                    title="Server Connection"
+                    text="The URL of the Docker host running the Myco Lab backend. Change this if you switch between local WiFi and Tailscale. Saved to localStorage — survives app restarts."
+                  />
+                </div>
+                <div className="text-[12px] font-mono truncate" style={{ color: 'var(--surface-muted)' }}>
+                  {typeof localStorage !== 'undefined' && localStorage.getItem('myco_server_url')
+                    ? localStorage.getItem('myco_server_url')
+                    : 'Default (Tailscale / build-time)'}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px] shrink-0"
+            >
+              <WifiHigh size={14} weight="regular" />
+              <span>Change</span>
+            </button>
+          </div>
+        </div>
+
         <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 min-w-0">
           <section className="md:col-span-5 min-w-0">
             <HardwareSection
@@ -422,8 +450,8 @@ function SettingsReady({
           </section>
         </div>
 
-        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow" style={{ color: 'var(--surface-muted)' }}>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of settings</span>
         </div>
       </motion.div>
@@ -436,21 +464,18 @@ function SettingsReady({
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
             className="fixed left-1/2 -translate-x-1/2 z-50 px-4"
-            style={{
-              bottom:
-                'calc(env(safe-area-inset-bottom, 0px) + 5.5rem + 0.75rem)',
-            }}
+            style={{ bottom: 'calc(max(env(safe-area-inset-bottom,0px),16px) + 5rem)' }}
             role="status"
           >
-            <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
-                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
-                <span className="break-words min-w-0">{toast}</span>
-              </div>
+            <div className="lab-card px-4 py-3 flex items-center gap-2 text-sm max-w-[min(92vw,32rem)]" style={{ color: 'var(--surface-text)' }}>
+              <Warning size={18} weight="regular" className="text-warn shrink-0" />
+              <span className="break-words min-w-0">{toast}</span>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {showUrlModal && <ServerUrlModal onClose={() => setShowUrlModal(false)} />}
     </div>
   )
 }
@@ -478,24 +503,23 @@ function HardwareSection({
     onChange({ ...draft, [k]: v })
 
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core p-4 md:p-6 min-w-0">
-        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
-          <div className="min-w-0 flex-1">
-            <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
-              Hardware
-            </span>
-            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
-              PC capacity & cycles
-            </h2>
-          </div>
-          <div className="shrink-0 h-10 w-10 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
-            <Cpu size={20} weight="regular" />
-          </div>
+    <div className="lab-card p-4 md:p-6 min-w-0">
+      <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+        <div className="min-w-0 flex-1">
+          <span className="eyebrow-tag">
+            Hardware
+          </span>
+          <h2 className="mt-3 font-sans font-bold text-2xl leading-tight tracking-tight text-balance" style={{ color: 'var(--surface-text)' }}>
+            PC capacity & cycles
+          </h2>
         </div>
-        <p className="text-[13px] text-graphite-500 mb-5">
-          How many runs fit in a day, and how long each cycle cooks and cools.
-        </p>
+        <div className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+          <Cpu size={20} weight="regular" />
+        </div>
+      </div>
+      <p className="text-[13px] mb-5" style={{ color: 'var(--surface-muted)' }}>
+        How many runs fit in a day, and how long each cycle cooks and cools.
+      </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
           <NumberField
@@ -592,23 +616,22 @@ function HardwareSection({
           />
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
-          <div className="text-[12px] text-graphite-500 font-mono truncate">
-            PUT /api/settings/hardware
-          </div>
-          <SaveButton
-            status={status}
-            disabled={!dirty}
-            dirty={dirty}
-            onClick={onSave}
-          />
+      <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
+        <div className="text-[12px] font-mono truncate" style={{ color: 'var(--surface-muted)' }}>
+          PUT /api/settings/hardware
         </div>
-        {error && (
-          <div className="mt-3 text-[12px] text-[#B23A2A] font-mono break-words">
-            {error}
-          </div>
-        )}
+        <SaveButton
+          status={status}
+          disabled={!dirty}
+          dirty={dirty}
+          onClick={onSave}
+        />
       </div>
+      {error && (
+        <div className="mt-3 text-[12px] font-mono break-words" style={{ color: 'var(--danger)' }}>
+          {error}
+        </div>
+      )}
     </div>
   )
 }
@@ -640,44 +663,42 @@ function SpeciesSection({
   )
 
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core p-4 md:p-6 min-w-0">
-        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
-          <div className="min-w-0 flex-1">
-            <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
-              Species
-            </span>
-            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
-              Biological timelines
-            </h2>
-          </div>
-          <div className="shrink-0 h-10 w-10 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
-            <Flask size={20} weight="regular" />
-          </div>
+    <div className="lab-card p-4 md:p-6 min-w-0">
+      <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+        <div className="min-w-0 flex-1">
+          <span className="eyebrow-tag">
+            Species
+          </span>
+          <h2 className="mt-3 font-sans font-bold text-2xl leading-tight tracking-tight text-balance" style={{ color: 'var(--surface-text)' }}>
+            Biological timelines
+          </h2>
         </div>
-        <p className="text-[13px] text-graphite-500 mb-5">
-          Per-species colonization and fruiting windows, expansion ratios, and
-          the biological-efficiency threshold that triggers senescence flags.
-        </p>
+        <div className="shrink-0 h-10 w-10 rounded-xl flex items-center justify-center" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+          <Flask size={20} weight="regular" />
+        </div>
+      </div>
+      <p className="text-[13px] mb-5" style={{ color: 'var(--surface-muted)' }}>
+        Per-species colonization and fruiting windows, expansion ratios, and
+        the biological-efficiency threshold that triggers senescence flags.
+      </p>
 
-        <div className="space-y-4 min-w-0">
-          {drafts.length === 0 ? (
-            <div className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-6 text-center text-[13px] text-graphite-500">
-              No species configured. Add one in the database to begin.
-            </div>
-          ) : (
-            drafts.map((d) => (
-              <SpeciesCard
-                key={d.id}
-                draft={d}
-                status={statuses[d.id] ?? 'idle'}
-                error={errors[d.id] ?? null}
-                onChange={(patch) => updateOne(d.id, patch)}
-                onSave={() => onSave(d)}
-              />
-            ))
-          )}
-        </div>
+      <div className="space-y-4 min-w-0">
+        {drafts.length === 0 ? (
+          <div className="rounded-2xl px-4 py-6 text-center text-[13px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--surface-muted)' }}>
+            No species configured. Add one in the database to begin.
+          </div>
+        ) : (
+          drafts.map((d) => (
+            <SpeciesCard
+              key={d.id}
+              draft={d}
+              status={statuses[d.id] ?? 'idle'}
+              error={errors[d.id] ?? null}
+              onChange={(patch) => updateOne(d.id, patch)}
+              onSave={() => onSave(d)}
+            />
+          ))
+        )}
       </div>
     </div>
   )
@@ -697,13 +718,13 @@ function SpeciesCard({
   onSave: () => void
 }) {
   return (
-    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-3 md:p-5 min-w-0 overflow-hidden">
+    <div className="rounded-2xl p-3 md:p-5 min-w-0 overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-start justify-between gap-3 mb-3 min-w-0">
         <div className="min-w-0 flex-1">
-          <div className="font-serif text-xl md:text-2xl leading-tight text-ink break-words text-balance">
+          <div className="font-sans font-semibold text-xl leading-tight break-words text-balance" style={{ color: 'var(--surface-text)' }}>
             {draft.common_name}
           </div>
-          <div className="text-[11px] text-graphite-500 font-mono uppercase tracking-eyebrow mt-0.5">
+          <div className="text-[11px] font-mono uppercase tracking-eyebrow mt-0.5" style={{ color: 'var(--bio-green)' }}>
             Profile · versioned
           </div>
         </div>
@@ -825,7 +846,7 @@ function SpeciesCard({
       </div>
 
       <div className="mt-4 flex items-center justify-between gap-3 min-w-0">
-        <div className="text-[11px] text-graphite-500 font-mono truncate">
+        <div className="text-[11px] font-mono truncate" style={{ color: 'var(--surface-muted)' }}>
           PUT /api/settings/species/{draft.id}/profile
         </div>
         <SaveButton
@@ -837,7 +858,7 @@ function SpeciesCard({
         />
       </div>
       {error && (
-        <div className="mt-2 text-[12px] text-[#B23A2A] font-mono break-words">
+        <div className="mt-2 text-[12px] font-mono break-words" style={{ color: 'var(--danger)' }}>
           {error}
         </div>
       )}
@@ -875,18 +896,22 @@ function NumberField({
   return (
     <label className="block min-w-0">
       <div className="flex items-baseline justify-between mb-1 gap-2 min-w-0">
-        <span className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium truncate">
+        <span className="text-[10px] uppercase tracking-eyebrow font-medium truncate" style={{ color: 'var(--surface-muted)' }}>
           {label}
         </span>
         {hint && (
-          <span className="text-[10px] text-ink/30 font-mono shrink-0">{hint}</span>
+          <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--surface-muted)', opacity: 0.5 }}>{hint}</span>
         )}
       </div>
       <div
         className={
-          'flex items-center gap-1.5 rounded-full bg-paper ring-1 ring-ink/10 px-3 py-2 transition-all duration-450 ease-fluid min-h-[44px] ' +
-          (disabled ? 'opacity-60' : 'focus-within:ring-ink/30 hover:ring-ink/20')
+          'flex items-center gap-1.5 rounded-full px-3 py-2 min-h-[44px] transition-all duration-300 ' +
+          (disabled ? 'opacity-50' : '')
         }
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
       >
         <input
           type="number"
@@ -899,9 +924,10 @@ function NumberField({
             const n = parseFloat(e.target.value)
             if (Number.isFinite(n)) onChange(n)
           }}
-          className="flex-1 min-w-0 bg-transparent outline-none text-[15px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          className="flex-1 min-w-0 bg-transparent outline-none text-[15px] font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          style={{ color: 'var(--surface-text)' }}
         />
-        <span className="text-[12px] text-ink/40 font-mono shrink-0">
+        <span className="text-[12px] font-mono shrink-0" style={{ color: 'var(--bio-green)' }}>
           {format ? format(value) : suffix ?? ''}
         </span>
       </div>
@@ -922,12 +948,12 @@ function RangeField({
 }) {
   return (
     <div className="block min-w-0">
-      <div className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium mb-1 truncate">
+      <div className="text-[10px] uppercase tracking-eyebrow font-medium mb-1 truncate" style={{ color: 'var(--surface-muted)' }}>
         {label}
       </div>
       <div className="grid grid-cols-2 gap-1.5 min-w-0">
-        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30 min-h-[44px] min-w-0">
-          <span className="text-[10px] text-ink/40 font-mono shrink-0">min</span>
+        <div className="flex items-center gap-1 rounded-full px-2.5 py-1.5 min-h-[44px] min-w-0" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--surface-muted)' }}>min</span>
           <input
             type="number"
             value={Number.isFinite(min) ? min : ''}
@@ -935,11 +961,12 @@ function RangeField({
               const n = parseFloat(e.target.value)
               if (Number.isFinite(n)) onChange(n, max)
             }}
-            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            style={{ color: 'var(--surface-text)' }}
           />
         </div>
-        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30 min-h-[44px] min-w-0">
-          <span className="text-[10px] text-ink/40 font-mono shrink-0">max</span>
+        <div className="flex items-center gap-1 rounded-full px-2.5 py-1.5 min-h-[44px] min-w-0" style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <span className="text-[10px] font-mono shrink-0" style={{ color: 'var(--surface-muted)' }}>max</span>
           <input
             type="number"
             value={Number.isFinite(max) ? max : ''}
@@ -947,7 +974,8 @@ function RangeField({
               const n = parseFloat(e.target.value)
               if (Number.isFinite(n)) onChange(min, n)
             }}
-            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            className="flex-1 min-w-0 bg-transparent outline-none text-[13px] font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            style={{ color: 'var(--surface-text)' }}
           />
         </div>
       </div>
@@ -973,23 +1001,19 @@ function SaveButton({
   const isError = status === 'error'
   const isIdle = !isSaving && !isSaved && !isError
 
-  const colorClasses = isSaved
-    ? 'bg-moss-700 text-paper ring-moss-700/30'
+  const style = isSaved || (isIdle && dirty)
+    ? { background: 'var(--bio-green)', color: '#080f0a' }
     : isError
-    ? 'bg-[#B23A2A] text-paper ring-[#B23A2A]/30'
-    : isIdle && dirty
-    ? 'bg-ink text-paper hover:bg-graphite-600 ring-ink/10'
-    : 'bg-paper text-ink/40 ring-ink/10 cursor-not-allowed'
+    ? { background: 'var(--danger-dim)', color: 'var(--danger)' }
+    : { background: 'rgba(255,255,255,0.05)', color: 'var(--surface-muted)', border: '1px solid rgba(255,255,255,0.08)' }
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled || (!dirty && isIdle) || isSaving}
-      className={
-        'group min-h-[44px] inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium ring-1 transition-all duration-450 ease-fluid active:scale-[0.98] ' +
-        colorClasses
-      }
+      className="group min-h-[44px] inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-300 active:scale-[0.97]"
+      style={style}
     >
       {isSaving ? (
         <CircleNotch size={12} weight="regular" className="animate-spin" />
@@ -1016,8 +1040,8 @@ function SettingsSkeleton() {
         <div className="mt-3 h-3 w-1/2 rounded-full skeleton" />
       </div>
       <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 min-w-0">
-        <div className="md:col-span-5 bezel-shell">
-          <div className="bezel-core p-4 md:p-5 space-y-3">
+        <div className="md:col-span-5 lab-card">
+          <div className="p-4 md:p-5 space-y-3">
             <div className="h-7 w-1/2 rounded-full skeleton" />
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Array.from({ length: 10 }).map((_, i) => (
@@ -1026,8 +1050,8 @@ function SettingsSkeleton() {
             </div>
           </div>
         </div>
-        <div className="md:col-span-7 bezel-shell">
-          <div className="bezel-core p-4 md:p-5 space-y-4">
+        <div className="md:col-span-7 lab-card">
+          <div className="p-4 md:p-5 space-y-4">
             <div className="h-7 w-1/2 rounded-full skeleton" />
             <div className="h-40 rounded-2xl skeleton" />
             <div className="h-40 rounded-2xl skeleton" />
@@ -1045,43 +1069,54 @@ function SettingsError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
+
   return (
     <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Settings</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1 className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-5xl leading-tight tracking-tight text-balance break-words" style={{ color: 'var(--surface-text)' }}>
           Settings unreachable
         </h1>
       </div>
       <div className="mt-8">
-        <div className="bezel-shell">
-          <div className="bezel-core p-5 md:p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Warning size={22} weight="regular" className="text-amber_lab shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/settings
-                </p>
-              </div>
+        <div className="lab-card p-5 md:p-6">
+          <div className="flex items-start gap-3 min-w-0 mb-5">
+            <Warning size={22} weight="regular" className="text-warn shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[15px] leading-relaxed break-words" style={{ color: 'var(--surface-text)' }}>
+                {message}
+              </p>
+              <p className="mt-1 text-[12px] font-mono" style={{ color: 'var(--surface-muted)' }}>
+                GET /api/settings
+              </p>
             </div>
+          </div>
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="btn-primary min-h-[44px] group"
             >
               <ArrowClockwise
                 size={16}
                 weight="regular"
-                className="transition-transform duration-450 ease-fluid group-hover:rotate-[60deg]"
+                className="transition-transform duration-300 group-hover:rotate-[60deg]"
               />
               <span>Retry</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px]"
+            >
+              <WifiHigh size={16} weight="regular" />
+              <span>Change Server URL</span>
             </button>
           </div>
         </div>
       </div>
+      {showUrlModal && <ServerUrlModal onClose={() => setShowUrlModal(false)} />}
     </div>
   )
 }

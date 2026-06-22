@@ -48,6 +48,7 @@ import {
   CircleWavyCheck,
   Trash,
   Warning,
+  WifiSlash,
   X,
 } from 'phosphor-react'
 
@@ -59,6 +60,8 @@ import {
   type DailyViewPayload,
   type TaskRow,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES — local to this view
@@ -320,11 +323,10 @@ function DailyViewReady({
 
   return (
     <div className="relative">
-      {/* Floating sticky top bar — sits above the scroll content and
-          clears the top safe-area inset on mobile. */}
+      {/* Floating sticky top bar */}
       <FloatingTopBar openCount={openCount} totalMins={totalOpenMins} />
 
-      {/* Main column — min-w-0 lets nested flex rows shrink properly. */}
+      {/* Main column */}
       <motion.div
         key={payload.date}
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
@@ -336,16 +338,12 @@ function DailyViewReady({
         <div className="px-3 pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Today</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
-              Step 2 · Daily Bench
-            </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1 className="mt-4 md:mt-5 font-sans text-4xl md:text-5xl font-bold leading-[0.95] tracking-tight text-surface-text text-balance break-words">
             {formatDateLong(parseTaskDate(payload.date))}
           </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-graphite-500">
-            Tap to mark a step complete. Gloved, wet hands — big targets, no
-            surprises.
+          <p className="mt-3 max-w-md text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
+            Tap ✓ to mark a step complete. Big targets for gloved hands.
           </p>
         </div>
 
@@ -381,8 +379,8 @@ function DailyViewReady({
         )}
 
         {/* Footnote */}
-        <div className="mt-10 md:mt-12 px-3 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div className="mt-10 md:mt-12 px-3 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow" style={{ color: 'var(--surface-muted)' }}>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of bench</span>
         </div>
       </motion.div>
@@ -407,19 +405,12 @@ function DailyViewReady({
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
             className="fixed left-1/2 -translate-x-1/2 z-50 px-4"
-            style={{
-              // Sit just above the floating bottom nav (which is mb-3
-              // = 12px + 64px h-16 + safe-area-inset-bottom).
-              bottom:
-                'calc(env(safe-area-inset-bottom, 0px) + 5.5rem + 0.75rem)',
-            }}
+            style={{ bottom: 'calc(max(env(safe-area-inset-bottom,0px),16px) + 5rem)' }}
             role="status"
           >
-            <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
-                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
-                <span className="break-words min-w-0">{toast}</span>
-              </div>
+            <div className="lab-card px-4 py-3 flex items-center gap-2 text-sm max-w-[min(92vw,32rem)]" style={{ color: 'var(--surface-text)' }}>
+              <Warning size={18} weight="regular" className="text-warn shrink-0" />
+              <span className="break-words min-w-0">{toast}</span>
             </div>
           </motion.div>
         )}
@@ -447,17 +438,17 @@ function FloatingTopBar({
       <div className="bezel-shell">
         <div className="bezel-core flex h-14 items-center justify-between gap-3 px-4">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="h-1.5 w-1.5 rounded-full bg-moss-700 shrink-0" />
-            <span className="font-serif text-[17px] leading-none text-ink truncate">
+            <span className="live-dot shrink-0" />
+            <span className="font-sans font-semibold text-[16px] leading-none truncate" style={{ color: 'var(--surface-text)' }}>
               Today
             </span>
           </div>
-          <div className="flex items-center gap-2 sm:gap-3 font-mono text-[11px] uppercase tracking-eyebrow text-ink/60 shrink-0">
-            <span className="text-num whitespace-nowrap">
+          <div className="flex items-center gap-2 sm:gap-3 font-mono text-[11px] uppercase tracking-eyebrow shrink-0" style={{ color: 'var(--surface-muted)' }}>
+            <span className="text-num whitespace-nowrap" style={{ color: 'var(--bio-green)' }}>
               {String(openCount).padStart(2, '0')} OPEN
             </span>
-            <span className="h-3 w-px bg-ink/15" />
-            <span className="text-num text-ink/40 whitespace-nowrap">
+            <span className="h-3 w-px" style={{ background: 'rgba(255,255,255,0.1)' }} />
+            <span className="text-num whitespace-nowrap">
               {formatMinutesShort(totalMins)}
             </span>
           </div>
@@ -486,39 +477,38 @@ function BudgetStrip({
 
   return (
     <div className="mt-5 md:mt-6 px-3">
-      <div className="bezel-shell">
-        <div className="bezel-core px-4 md:px-5 py-4">
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
+      <div className="lab-card-accent px-4 md:px-5 py-4">
+        <div className="flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-eyebrow" style={{ color: 'var(--surface-muted)' }}>
               Time budget
             </span>
-            <span
-              className={
-                'font-mono text-[11px] uppercase tracking-eyebrow whitespace-nowrap ' +
-                (isOverBudget ? 'text-amber_lab' : 'text-ink/50')
-              }
-            >
-              {formatMinutesShort(totalMins)} / {formatMinutesShort(budgetMins)}
-            </span>
-          </div>
-          <div className="mt-3 h-1 w-full rounded-full bg-ink/[0.06] overflow-hidden">
-            <div
-              className={
-                'h-full rounded-full transition-all duration-700 ease-fluid ' +
-                (isOverBudget ? 'bg-amber_lab' : 'bg-moss-700')
-              }
-              style={{ width: `${pct}%` }}
+            <HelpTooltip
+              title="Daily Time Budget"
+              text="Total estimated minutes for open tasks today vs. your configured daily limit. Red = over budget — consider rescheduling lower-priority tasks."
             />
           </div>
-          {warningCount > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-[12px] text-amber_lab min-w-0">
-              <Warning size={14} weight="regular" className="shrink-0" />
-              <span className="break-words">
-                {warningCount} warning{warningCount === 1 ? '' : 's'} on the bench
-              </span>
-            </div>
-          )}
+          <span
+            className="font-mono text-[11px] uppercase tracking-eyebrow whitespace-nowrap"
+            style={{ color: isOverBudget ? 'var(--danger)' : 'var(--surface-muted)' }}
+          >
+            {formatMinutesShort(totalMins)} / {formatMinutesShort(budgetMins)}
+          </span>
         </div>
+        <div className="progress-track mt-3">
+          <div
+            className={'progress-fill' + (isOverBudget ? ' progress-fill-danger' : pct > 75 ? ' progress-fill-warn' : '')}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        {warningCount > 0 && (
+          <div className="mt-3 flex items-center gap-2 text-[12px] min-w-0" style={{ color: 'var(--warn)' }}>
+            <Warning size={14} weight="regular" className="shrink-0" />
+            <span className="break-words">
+              {warningCount} warning{warningCount === 1 ? '' : 's'} on the bench
+            </span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -542,10 +532,10 @@ function TaskGroupSection({
   return (
     <section className="min-w-0">
       <div className="px-3 mb-3 flex items-center justify-between min-w-0">
-        <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
+        <span className="text-[10px] uppercase tracking-eyebrow font-semibold truncate" style={{ color: 'var(--bio-green)' }}>
           {group.label}
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num shrink-0">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-num shrink-0" style={{ color: 'var(--surface-muted)' }}>
           {String(group.tasks.length).padStart(2, '0')}
         </span>
       </div>
@@ -635,66 +625,62 @@ function TaskCard({
         </div>
       )}
 
-      <div className="bezel-shell">
-        <div className="bezel-core p-4 md:p-5 min-h-[88px]">
+      <div className="lab-card">
+        <div className="p-4 md:p-5 min-h-[88px]">
           <div className="flex items-start gap-3 md:gap-4 min-w-0">
-            {/* Text column — min-w-0 lets the title wrap. */}
+            {/* Text column */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap min-w-0">
                 <StatusDot status={task.status} />
-                <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+                <span className="text-[10px] uppercase tracking-eyebrow font-medium" style={{ color: 'var(--surface-muted)' }}>
                   {humanizeTaskStatus(task.status)}
                 </span>
                 {task.is_overdue ? (
-                  <span className="text-[10px] uppercase tracking-eyebrow text-amber_lab font-medium">
+                  <span className="text-[10px] uppercase tracking-eyebrow font-semibold" style={{ color: 'var(--warn)' }}>
                     Overdue
                   </span>
                 ) : null}
               </div>
-              <h3 className="text-[17px] md:text-2xl font-medium text-ink leading-snug break-words">
+              <h3 className="text-[17px] md:text-2xl font-semibold leading-snug break-words" style={{ color: 'var(--surface-text)' }}>
                 {task.title}
               </h3>
-              <div className="mt-1.5 flex items-center gap-2 text-sm text-ink/50 flex-wrap min-w-0">
+              <div className="mt-1.5 flex items-center gap-2 text-sm flex-wrap min-w-0" style={{ color: 'var(--surface-muted)' }}>
                 {task.species_name && <span className="break-words">{task.species_name}</span>}
                 {task.species_name && task.batch_ref && (
-                  <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
+                  <span className="h-1 w-1 rounded-full shrink-0" style={{ background: 'rgba(255,255,255,0.15)' }} />
                 )}
                 {task.batch_ref && (
-                  <span className="font-mono uppercase tracking-wide_lab text-[12px] break-all">
+                  <span className="font-mono uppercase tracking-wide_lab text-[12px] break-all" style={{ color: 'var(--bio-green)' }}>
                     {task.batch_ref}
                   </span>
                 )}
                 {(task.species_name || task.batch_ref) && task.estimated_mins ? (
-                  <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
+                  <span className="h-1 w-1 rounded-full shrink-0" style={{ background: 'rgba(255,255,255,0.15)' }} />
                 ) : null}
                 {task.estimated_mins ? (
-                  <span className="text-num whitespace-nowrap">
-                    {formatMinutesShort(task.estimated_mins)}
-                  </span>
+                  <span className="text-num whitespace-nowrap">{formatMinutesShort(task.estimated_mins)}</span>
                 ) : null}
                 {task.flush_number ? (
                   <>
-                    <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
+                    <span className="h-1 w-1 rounded-full shrink-0" style={{ background: 'rgba(255,255,255,0.15)' }} />
                     <span className="text-num whitespace-nowrap">Flush {task.flush_number}</span>
                   </>
                 ) : null}
               </div>
             </div>
 
-            {/* Massive Complete button — 64×64 mobile, 56×56 desktop. */}
-            <CompleteButton
-              task={task}
-              onClick={() => onComplete(task)}
-            />
+            {/* Massive Complete button */}
+            <CompleteButton task={task} onClick={() => onComplete(task)} />
           </div>
 
-          {/* Secondary contam action — min-h for touch target. */}
+          {/* Secondary contam action */}
           {showContam && (
-            <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-ink/[0.06]">
+            <div className="mt-3 md:mt-4 pt-3 md:pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <button
                 type="button"
                 onClick={() => onRequestContam(task)}
-                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium text-ink/60 underline decoration-ink/20 underline-offset-4 hover:text-[#B23A2A] hover:decoration-[#B23A2A] transition-colors duration-450 ease-fluid"
+                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium transition-colors duration-300"
+                style={{ color: 'rgba(249, 112, 102, 0.7)' }}
               >
                 <Trash size={14} weight="regular" />
                 <span>Mark batch as spent (contam)</span>
@@ -733,29 +719,21 @@ function CompleteButton({
       type="button"
       onClick={handleClick}
       aria-label={`Mark complete: ${task.title}`}
-      className={
-        'group relative shrink-0 w-14 h-14 md:w-14 md:h-14 rounded-full ' +
-        'ring-1 ring-ink/15 active:scale-[0.94] ' +
-        'transition-all duration-500 ease-fluid ' +
-        (completed
-          ? 'bg-moss-700 ring-moss-800/40'
-          : 'bg-paper hover:bg-moss-700 hover:ring-moss-800/30')
-      }
+      className="group relative shrink-0 w-14 h-14 rounded-full active:scale-[0.92] transition-all duration-400"
+      style={{
+        background: completed
+          ? 'var(--bio-green)'
+          : 'rgba(52, 212, 104, 0.08)',
+        border: `1px solid ${completed ? 'var(--bio-green)' : 'rgba(52, 212, 104, 0.2)'}`,
+        boxShadow: completed ? 'var(--bio-green-glow)' : 'none',
+        transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
+      }}
     >
-      <span
-        className={
-          'absolute inset-0 flex items-center justify-center ' +
-          'transition-transform duration-500 ease-fluid ' +
-          'group-hover:scale-[1.05] group-hover:translate-x-[1px] group-hover:translate-y-[-1px]'
-        }
-      >
+      <span className="absolute inset-0 flex items-center justify-center transition-transform duration-400 group-hover:scale-[1.08]" style={{ transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)' }}>
         <Check
-          size={24}
-          weight="light"
-          className={
-            'transition-colors duration-500 ease-fluid ' +
-            (completed ? 'text-paper' : 'text-ink/70 group-hover:text-paper')
-          }
+          size={22}
+          weight={completed ? 'bold' : 'regular'}
+          style={{ color: completed ? '#080f0a' : 'var(--bio-green)', transition: 'color 400ms' }}
         />
       </span>
     </button>
@@ -792,99 +770,65 @@ function ContamConfirmSheet({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
-        className="absolute inset-0 bg-ink/30 backdrop-blur-md"
+        className="absolute inset-0 backdrop-blur-sm"
+        style={{ background: 'rgba(8, 15, 10, 0.75)' }}
       />
 
       <motion.div
-        initial={
-          reduceMotion
-            ? { opacity: 0 }
-            : { opacity: 0, y: 24, scale: 0.98 }
-        }
+        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={
-          reduceMotion
-            ? { opacity: 0 }
-            : { opacity: 0, y: 24, scale: 0.98 }
-        }
+        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.98 }}
         transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
         className="relative w-full md:max-w-md mx-3 md:mx-4"
-        style={{
-          marginBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)',
-        }}
+        style={{ marginBottom: 'calc(max(env(safe-area-inset-bottom,0px),16px) + 0.75rem)' }}
       >
-        <div className="bezel-shell">
-          <div className="bezel-core p-5">
-            <div className="flex items-start justify-between gap-3 min-w-0">
-              <div className="min-w-0 flex-1">
-                <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
-                  Contam · Spent
-                </span>
-                <h2
-                  id="contam-title"
-                  className="mt-3 font-serif text-2xl md:text-3xl leading-[0.95] tracking-tight text-ink break-words text-balance"
-                >
-                  Mark this batch as spent?
-                </h2>
-                <p className="mt-2 text-[14px] leading-relaxed text-graphite-500">
-                  This cancels all pending harvest tasks for the batch and sets
-                  it to <span className="font-mono text-[12px]">SPENT</span>.
-                  This can't be undone from the bench.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={onCancel}
-                aria-label="Close"
-                className="shrink-0 -mt-1 -mr-1 min-h-[44px] min-w-[44px] h-10 w-10 rounded-full ring-1 ring-ink/10 bg-paper text-ink/60 hover:text-ink hover:ring-ink/20 transition-all duration-450 ease-fluid flex items-center justify-center"
-              >
-                <X size={16} weight="regular" />
-              </button>
+        <div className="server-modal-shell">
+          <div className="flex items-start justify-between gap-3 min-w-0 mb-4">
+            <div className="min-w-0 flex-1">
+              <span className="eyebrow-tag" style={{ background: 'var(--danger-dim)', color: 'var(--danger)' }}>
+                Contam · Spent
+              </span>
+              <h2 id="contam-title" className="mt-3 font-sans font-bold text-2xl leading-tight break-words text-balance" style={{ color: 'var(--surface-text)' }}>
+                Mark batch as spent?
+              </h2>
+              <p className="mt-2 text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
+                Cancels all pending tasks for the batch and sets it to{' '}
+                <span className="font-mono text-[12px]" style={{ color: 'var(--danger)' }}>SPENT</span>.
+                Cannot be undone from the bench.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Close"
+              className="shrink-0 -mt-1 -mr-1 min-h-[44px] min-w-[44px] h-10 w-10 rounded-full flex items-center justify-center transition-colors duration-300"
+              style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--surface-muted)' }}
+            >
+              <X size={16} weight="regular" />
+            </button>
+          </div>
 
-            <div className="mt-4 rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-3">
-              <div className="text-[10px] uppercase tracking-eyebrow text-ink/40">
-                Task
+          <div className="rounded-2xl px-4 py-3 mb-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="text-[10px] uppercase tracking-eyebrow mb-1" style={{ color: 'var(--surface-muted)' }}>Task</div>
+            <div className="text-[15px] font-medium leading-snug break-words" style={{ color: 'var(--surface-text)' }}>{task.title}</div>
+            {task.species_name && (
+              <div className="mt-1 text-[12px] break-words" style={{ color: 'var(--surface-muted)' }}>
+                {task.species_name}
+                {task.batch_ref && (
+                  <> · <span className="font-mono uppercase" style={{ color: 'var(--bio-green)' }}>{task.batch_ref}</span></>
+                )}
               </div>
-              <div className="mt-1 text-[15px] text-ink font-medium leading-snug break-words">
-                {task.title}
-              </div>
-              {task.species_name && (
-                <div className="mt-1 text-[12px] text-ink/50 break-words">
-                  {task.species_name}
-                  {task.batch_ref && (
-                    <>
-                      {' · '}
-                      <span className="font-mono uppercase tracking-wide_lab break-all">
-                        {task.batch_ref}
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+            )}
+          </div>
 
-            <div className="mt-5 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
-              <button
-                type="button"
-                onClick={onCancel}
-                className="min-h-[44px] px-5 py-3 rounded-full text-sm font-medium text-ink/70 ring-1 ring-ink/10 hover:ring-ink/20 hover:text-ink transition-all duration-450 ease-fluid"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={onConfirm}
-                className="group min-h-[44px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#B23A2A] text-paper text-sm font-medium hover:bg-[#8F2E22] active:scale-[0.98] transition-all duration-450 ease-fluid"
-              >
-                <Trash
-                  size={16}
-                  weight="regular"
-                  className="transition-transform duration-450 ease-fluid group-hover:scale-[1.06]"
-                />
-                <span>Mark spent</span>
-              </button>
-            </div>
+          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
+            <button type="button" onClick={onCancel} className="btn-ghost min-h-[44px]">
+              Cancel
+            </button>
+            <button type="button" onClick={onConfirm} className="btn-danger min-h-[44px] justify-center">
+              <Trash size={16} weight="regular" />
+              <span>Mark spent</span>
+            </button>
           </div>
         </div>
       </motion.div>
@@ -899,37 +843,28 @@ function ContamConfirmSheet({
 function DailyViewSkeleton() {
   return (
     <div className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6">
-      {/* Top bar skeleton */}
-      <div
-        className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl mb-4"
-        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
-      >
+      <div className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl mb-4" style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}>
         <div className="bezel-shell">
           <div className="bezel-core flex h-14 items-center justify-between px-4">
             <div className="flex items-center gap-2">
-              <span className="h-1.5 w-1.5 rounded-full bg-ink/10" />
+              <span className="h-2 w-2 rounded-full skeleton" />
               <span className="h-3 w-14 skeleton" />
             </div>
             <div className="h-3 w-16 skeleton" />
           </div>
         </div>
       </div>
-
       <div className="px-3">
         <span className="eyebrow-tag opacity-60">Today</span>
         <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
         <div className="mt-3 h-3 w-1/2 rounded-full skeleton" />
       </div>
-
       <div className="mt-6 px-3">
-        <div className="bezel-shell">
-          <div className="bezel-core px-5 py-4">
-            <div className="h-2 w-24 rounded-full skeleton" />
-            <div className="mt-3 h-1 w-full rounded-full skeleton" />
-          </div>
+        <div className="lab-card px-5 py-4">
+          <div className="h-2 w-24 rounded-full skeleton" />
+          <div className="mt-3 h-1 w-full rounded-full skeleton" />
         </div>
       </div>
-
       <div className="mt-8 px-3 space-y-3">
         <div className="h-2 w-20 rounded-full skeleton" />
         <SkeletonCard />
@@ -943,8 +878,8 @@ function DailyViewSkeleton() {
 
 function SkeletonCard() {
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core p-4 md:p-5 min-h-[88px]">
+    <div className="lab-card">
+      <div className="p-4 md:p-5 min-h-[88px]">
         <div className="flex items-center gap-4 min-w-0">
           <div className="flex-1 min-w-0 space-y-3">
             <div className="h-2 w-16 rounded-full skeleton" />
@@ -969,47 +904,71 @@ function DailyViewError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
+
   return (
     <div className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6">
       <div className="px-3 pt-2">
         <span className="eyebrow-tag">Today</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1 className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-5xl leading-tight tracking-tight text-balance break-words" style={{ color: 'var(--surface-text)' }}>
           Bench unreachable
         </h1>
       </div>
+
       <div className="mt-8 px-3">
-        <div className="bezel-shell">
-          <div className="bezel-core p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Warning
-                size={22}
-                weight="regular"
-                className="text-amber_lab shrink-0 mt-0.5"
-              />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/tasks/today
-                </p>
-              </div>
+        <div className="lab-card p-6">
+          {/* Error icon + message */}
+          <div className="flex items-start gap-3 min-w-0 mb-6">
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'var(--danger-dim)' }}>
+              <WifiSlash size={20} style={{ color: 'var(--danger)' }} weight="bold" />
             </div>
+            <div className="min-w-0">
+              <p className="text-[15px] leading-relaxed break-words" style={{ color: 'var(--surface-text)' }}>
+                {message || 'Could not reach the server.'}
+              </p>
+              <p className="mt-1 text-[12px] font-mono" style={{ color: 'var(--surface-muted)' }}>
+                GET /api/tasks/today
+              </p>
+            </div>
+          </div>
+
+          {/* Help explainer */}
+          <div className="rounded-2xl p-4 mb-5" style={{ background: 'rgba(52,212,104,0.06)', border: '1px solid rgba(52,212,104,0.15)' }}>
+            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--surface-text)' }}>
+              <strong style={{ color: 'var(--bio-green)' }}>On local WiFi?</strong> Tap "Change Server URL" and enter your PC's local IP (e.g. <span className="font-mono" style={{ color: 'var(--bio-green)' }}>http://192.168.1.x:3001</span>).
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed" style={{ color: 'var(--surface-text)' }}>
+              <strong style={{ color: 'var(--bio-green)' }}>On Tailscale?</strong> Make sure the VPN is connected and Docker is running on the host.
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="btn-primary min-h-[44px] group"
             >
               <ArrowClockwise
                 size={16}
                 weight="regular"
-                className="transition-transform duration-450 ease-fluid group-hover:rotate-[60deg]"
+                className="transition-transform duration-400 group-hover:rotate-[60deg]"
               />
               <span>Retry</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px]"
+            >
+              <WifiSlash size={16} weight="regular" />
+              <span>Change Server URL</span>
             </button>
           </div>
         </div>
       </div>
+
+      {showUrlModal && <ServerUrlModal onClose={() => setShowUrlModal(false)} />}
     </div>
   )
 }
@@ -1026,18 +985,16 @@ function EmptyState() {
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
       className="mt-10 md:mt-12 px-3"
     >
-      <div className="bezel-shell">
-        <div className="bezel-core px-6 py-12 text-center">
-          <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-moss-700/10 text-moss-700">
-            <CircleWavyCheck size={24} weight="regular" />
-          </div>
-          <h2 className="font-serif text-3xl md:text-5xl leading-[0.95] tracking-tight text-ink text-balance">
-            Bench is clear.
-          </h2>
-          <p className="mt-3 text-[14px] text-graphite-500">
-            Nothing scheduled for today. Take a breath.
-          </p>
+      <div className="lab-card-accent px-6 py-14 text-center">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+          <CircleWavyCheck size={28} weight="regular" />
         </div>
+        <h2 className="font-sans font-bold text-3xl md:text-4xl leading-tight tracking-tight text-balance" style={{ color: 'var(--surface-text)' }}>
+          Bench is clear.
+        </h2>
+        <p className="mt-3 text-[14px]" style={{ color: 'var(--surface-muted)' }}>
+          Nothing scheduled for today. Take a breath.
+        </p>
       </div>
     </motion.div>
   )
@@ -1071,12 +1028,12 @@ function humanizeTaskStatus(status: string): string {
 }
 
 function StatusDot({ status }: { status: string }) {
-  let color = 'bg-ink/30'
-  if (status === 'PENDING') color = 'bg-ink/40'
-  if (status === 'IN_PROGRESS') color = 'bg-amber_lab'
-  if (status === 'OVER_BUDGET_WARNING') color = 'bg-amber_lab'
-  if (status === 'FLAGGED') color = 'bg-amber_lab'
-  if (status === 'COMPLETE') color = 'bg-moss-700'
-  if (status === 'SKIPPED') color = 'bg-ink/15'
-  return <span className={`h-1.5 w-1.5 rounded-full ${color} shrink-0`} />
+  let bg = 'rgba(255,255,255,0.2)'
+  if (status === 'PENDING')             bg = 'rgba(122, 171, 131, 0.7)'
+  if (status === 'IN_PROGRESS')         bg = 'var(--warn)'
+  if (status === 'OVER_BUDGET_WARNING') bg = 'var(--warn)'
+  if (status === 'FLAGGED')             bg = 'var(--warn)'
+  if (status === 'COMPLETE')            bg = 'var(--bio-green)'
+  if (status === 'SKIPPED')             bg = 'rgba(255,255,255,0.12)'
+  return <span className="h-2 w-2 rounded-full shrink-0" style={{ background: bg }} />
 }

@@ -19,7 +19,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import {
   ArrowClockwise,
   CalendarBlank,
-  Warning,
+  WifiSlash,
 } from 'phosphor-react'
 
 import {
@@ -27,6 +27,8 @@ import {
   getTasksInRange,
   type TaskRow,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -285,14 +287,11 @@ function CalendarReady({
         <div className="pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Calendar</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
-              Step 4 · 28-Day Horizon
-            </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1 className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-5xl leading-tight tracking-tight text-balance break-words" style={{ color: 'var(--surface-text)' }}>
             Four weeks ahead.
           </h1>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
+          <p className="mt-3 max-w-xl text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
             Every scheduled task across the next {HORIZON_DAYS} days, color-coded
             by track. Hover or tap a day to see task details.
           </p>
@@ -304,15 +303,22 @@ function CalendarReady({
             label="Window"
             value={`${formatDateShort(startDate)} – ${formatDateShort(endDate)}`}
             icon={<CalendarBlank size={16} weight="regular" />}
+            tooltip="The rolling 28-day schedule window starting today."
           />
-          <StatTile label="Tasks" value={String(totalInWindow).padStart(2, '0')} />
+          <StatTile 
+            label="Tasks" 
+            value={String(totalInWindow).padStart(2, '0')} 
+            tooltip="Total scheduled tasks in the 28-day window."
+          />
           <StatTile
             label="Days with work"
             value={`${String(daysWithWork).padStart(2, '0')} / ${HORIZON_DAYS}`}
+            tooltip="Number of days in the window that have at least one scheduled task."
           />
           <StatTile
             label="Tracks"
             value={`${TRACKS.length}`}
+            tooltip="Active workflow pipelines."
           />
         </div>
 
@@ -321,17 +327,18 @@ function CalendarReady({
           {TRACKS.map((t) => (
             <div
               key={t.key}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full ring-1 ring-ink/[0.08] bg-paper min-h-[36px]"
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full min-h-[36px]"
+              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}
             >
               <span
                 aria-hidden
                 className="h-2 w-2 rounded-full shrink-0"
                 style={{ backgroundColor: t.color }}
               />
-              <span className="text-[11px] uppercase tracking-eyebrow text-ink/70 font-medium">
+              <span className="text-[11px] uppercase tracking-eyebrow font-medium" style={{ color: 'var(--surface-text)' }}>
                 {t.label}
               </span>
-              <span className="font-mono text-[10px] text-ink/40 text-num">
+              <span className="font-mono text-[10px] text-num" style={{ color: 'var(--surface-muted)' }}>
                 {counts[t.key]}
               </span>
             </div>
@@ -340,13 +347,11 @@ function CalendarReady({
 
         {/* Desktop Gantt */}
         <div className="mt-6 md:mt-8 hidden md:block">
-          <div className="bezel-shell">
-            <div className="bezel-core p-4 md:p-5">
-              <GanttGrid
-                days={days}
-                trackTasksByDay={trackTasksByDay}
-              />
-            </div>
+          <div className="lab-card p-4 md:p-5">
+            <GanttGrid
+              days={days}
+              trackTasksByDay={trackTasksByDay}
+            />
           </div>
         </div>
 
@@ -362,8 +367,8 @@ function CalendarReady({
           ))}
         </div>
 
-        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow" style={{ color: 'var(--surface-muted)' }}>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of horizon</span>
         </div>
       </motion.div>
@@ -395,12 +400,12 @@ function GanttGrid({
   return (
     <div className="grid grid-cols-4 gap-3 min-w-0">
       {weeks.map((wk, wi) => (
-        <div key={wi} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-2.5 min-w-0">
+        <div key={wi} className="rounded-2xl p-2.5 min-w-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
           <div className="flex items-baseline justify-between mb-2 px-1 gap-2 min-w-0">
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+            <span className="text-[10px] uppercase tracking-eyebrow font-medium" style={{ color: 'var(--surface-muted)' }}>
               Week {wi + 1}
             </span>
-            <span className="font-mono text-[10px] text-ink/30 text-num whitespace-nowrap">
+            <span className="font-mono text-[10px] text-num whitespace-nowrap" style={{ color: 'var(--surface-muted)' }}>
               {dayHeaderShort(wk[0])} – {dayHeaderShort(wk[wk.length - 1])}
             </span>
           </div>
@@ -417,19 +422,18 @@ function GanttGrid({
                   key={d.toISOString()}
                   className={
                     'flex flex-col items-center justify-center rounded-lg py-1 text-center ' +
-                    (isToday
-                      ? 'bg-ink/[0.06] ring-1 ring-ink/15'
-                      : 'bg-transparent')
+                    (isToday ? '' : 'bg-transparent')
                   }
+                  style={isToday ? { background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)' } : {}}
                 >
-                  <span className="text-[9px] uppercase tracking-eyebrow text-ink/40 font-mono">
+                  <span className="text-[9px] uppercase tracking-eyebrow font-mono" style={{ color: 'var(--surface-muted)' }}>
                     {weekday}
                   </span>
                   <span
                     className={
-                      'font-mono text-[11px] text-num mt-0.5 ' +
-                      (hasWork ? 'text-ink' : 'text-ink/30')
+                      'font-mono text-[11px] text-num mt-0.5'
                     }
+                    style={hasWork ? { color: 'var(--surface-text)' } : { color: 'var(--surface-muted)', opacity: 0.5 }}
                   >
                     {day}
                   </span>
@@ -442,7 +446,7 @@ function GanttGrid({
             {TRACKS.map((track) => (
               <div key={track.key}>
                 <div className="flex items-baseline justify-between mb-1 px-1">
-                  <span className="text-[9px] uppercase tracking-eyebrow text-ink/40 font-mono">
+                  <span className="text-[9px] uppercase tracking-eyebrow font-mono" style={{ color: 'var(--surface-muted)' }}>
                     {track.shortLabel}
                   </span>
                 </div>
@@ -514,31 +518,30 @@ function GanttCell({
             transition={{ duration: 0.2, ease: [0.32, 0.72, 0, 1] }}
             className="absolute z-20 left-1/2 -translate-x-1/2 top-full mt-1.5 w-56 pointer-events-none"
           >
-            <div className="bezel-shell">
-              <div className="bezel-core p-3 text-left">
-                <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
-                  {isoDate(day)} · {track.label}
-                </div>
-                <ul className="mt-1.5 space-y-1">
-                  {tasks.slice(0, 5).map((t) => (
-                    <li
-                      key={t.id}
-                      className="text-[12px] text-ink leading-tight flex items-baseline gap-1.5 min-w-0"
-                    >
-                      <span
-                        className="h-1.5 w-1.5 rounded-full shrink-0 mt-1"
-                        style={{ backgroundColor: track.color }}
-                      />
-                      <span className="truncate">{t.title}</span>
-                    </li>
-                  ))}
-                  {tasks.length > 5 && (
-                    <li className="text-[11px] text-ink/40 font-mono">
-                      +{tasks.length - 5} more
-                    </li>
-                  )}
-                </ul>
+            <div className="lab-card p-3 text-left shadow-2xl">
+              <div className="text-[10px] uppercase tracking-eyebrow font-mono" style={{ color: 'var(--surface-muted)' }}>
+                {isoDate(day)} · {track.label}
               </div>
+              <ul className="mt-1.5 space-y-1">
+                {tasks.slice(0, 5).map((t) => (
+                  <li
+                    key={t.id}
+                    className="text-[12px] leading-tight flex items-baseline gap-1.5 min-w-0"
+                    style={{ color: 'var(--surface-text)' }}
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full shrink-0 mt-1"
+                      style={{ backgroundColor: track.color }}
+                    />
+                    <span className="truncate">{t.title}</span>
+                  </li>
+                ))}
+                {tasks.length > 5 && (
+                  <li className="text-[11px] font-mono" style={{ color: 'var(--surface-muted)' }}>
+                    +{tasks.length - 5} more
+                  </li>
+                )}
+              </ul>
             </div>
           </motion.div>
         )}
@@ -561,60 +564,59 @@ function MobileWeek({
   tasksByDay: Map<string, TaskRow[]>
 }) {
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core p-4 min-w-0">
-        <div className="flex items-baseline justify-between mb-3 gap-2 min-w-0">
-          <span className="eyebrow-tag">Week {weekNumber}</span>
-          <span className="font-mono text-[10px] text-ink/40 text-num whitespace-nowrap">
-            {dayHeaderShort(days[0])} – {dayHeaderShort(days[days.length - 1])}
-          </span>
-        </div>
-        <div className="space-y-2">
-          {days.map((d) => {
-            const key = isoDate(d)
-            const list = tasksByDay.get(key) ?? []
-            return (
-              <div key={key} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-3 min-w-0">
-                <div className="flex items-baseline justify-between mb-1.5 gap-2 min-w-0">
-                  <span className="font-serif text-base md:text-lg leading-none text-ink">
-                    {d.toLocaleDateString('en-US', { weekday: 'long' })}
-                  </span>
-                  <span className="font-mono text-[11px] text-ink/40 text-num whitespace-nowrap">
-                    {dayHeaderShort(d)}
-                  </span>
-                </div>
-                {list.length === 0 ? (
-                  <div className="text-[12px] text-ink/30 font-mono">—</div>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {list.map((t) => {
-                      const trk = trackFor(t.task_type)
-                      const color = trk?.color ?? '#4A4A4A'
-                      return (
-                        <li
-                          key={t.id}
-                          className="flex items-baseline gap-2 text-[13px] text-ink min-w-0"
-                        >
-                          <span
-                            aria-hidden
-                            className="h-2 w-2 rounded-full shrink-0 mt-1.5"
-                            style={{ backgroundColor: color }}
-                          />
-                          <span className="break-words min-w-0 flex-1">
-                            {t.title}
-                          </span>
-                          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/40 shrink-0 whitespace-nowrap">
-                            {humanizeType(t.task_type)}
-                          </span>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
+    <div className="lab-card p-4 min-w-0">
+      <div className="flex items-baseline justify-between mb-3 gap-2 min-w-0">
+        <span className="eyebrow-tag">Week {weekNumber}</span>
+        <span className="font-mono text-[10px] text-num whitespace-nowrap" style={{ color: 'var(--surface-muted)' }}>
+          {dayHeaderShort(days[0])} – {dayHeaderShort(days[days.length - 1])}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {days.map((d) => {
+          const key = isoDate(d)
+          const list = tasksByDay.get(key) ?? []
+          return (
+            <div key={key} className="rounded-2xl p-3 min-w-0" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <div className="flex items-baseline justify-between mb-1.5 gap-2 min-w-0">
+                <span className="font-sans font-bold text-base md:text-lg leading-none" style={{ color: 'var(--surface-text)' }}>
+                  {d.toLocaleDateString('en-US', { weekday: 'long' })}
+                </span>
+                <span className="font-mono text-[11px] text-num whitespace-nowrap" style={{ color: 'var(--surface-muted)' }}>
+                  {dayHeaderShort(d)}
+                </span>
               </div>
-            )
-          })}
-        </div>
+              {list.length === 0 ? (
+                <div className="text-[12px] font-mono" style={{ color: 'var(--surface-muted)', opacity: 0.5 }}>—</div>
+              ) : (
+                <ul className="space-y-1.5">
+                  {list.map((t) => {
+                    const trk = trackFor(t.task_type)
+                    const color = trk?.color ?? '#4A4A4A'
+                    return (
+                      <li
+                        key={t.id}
+                        className="flex items-baseline gap-2 text-[13px] min-w-0"
+                        style={{ color: 'var(--surface-text)' }}
+                      >
+                        <span
+                          aria-hidden
+                          className="h-2 w-2 rounded-full shrink-0 mt-1.5"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="break-words min-w-0 flex-1">
+                          {t.title}
+                        </span>
+                        <span className="font-mono text-[10px] uppercase tracking-eyebrow shrink-0 whitespace-nowrap" style={{ color: 'var(--surface-muted)' }}>
+                          {humanizeType(t.task_type)}
+                        </span>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -628,23 +630,26 @@ function StatTile({
   label,
   value,
   icon,
+  tooltip,
 }: {
   label: string
   value: string
   icon?: React.ReactNode
+  tooltip?: string
 }) {
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core px-3 md:px-4 py-4 min-w-0">
-        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
+    <div className="lab-card px-3 md:px-4 py-4 min-w-0">
+      <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-[10px] uppercase tracking-eyebrow font-medium truncate" style={{ color: 'var(--surface-muted)' }}>
             {label}
           </span>
-          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
+          {tooltip && <HelpTooltip title={label} text={tooltip} />}
         </div>
-        <div className="font-serif text-lg md:text-3xl leading-none text-num text-ink truncate">
-          {value}
-        </div>
+        {icon && <span className="shrink-0" style={{ color: 'var(--surface-muted)' }}>{icon}</span>}
+      </div>
+      <div className="font-sans font-bold text-lg md:text-3xl leading-none text-num truncate" style={{ color: 'var(--surface-text)' }}>
+        {value}
       </div>
     </div>
   )
@@ -674,21 +679,17 @@ function CalendarSkeleton() {
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bezel-shell">
-            <div className="bezel-core px-3 md:px-4 py-4">
-              <div className="h-2 w-16 rounded-full skeleton" />
-              <div className="mt-3 h-5 w-20 rounded-full skeleton" />
-            </div>
+          <div key={i} className="lab-card px-3 md:px-4 py-4">
+            <div className="h-2 w-16 rounded-full skeleton" />
+            <div className="mt-3 h-5 w-20 rounded-full skeleton" />
           </div>
         ))}
       </div>
-      <div className="mt-8 bezel-shell">
-        <div className="bezel-core p-4 md:p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-40 rounded-2xl skeleton" />
-            ))}
-          </div>
+      <div className="mt-8 lab-card p-4 md:p-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-40 rounded-2xl skeleton" />
+          ))}
         </div>
       </div>
     </div>
@@ -702,47 +703,57 @@ function CalendarError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
   return (
     <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Calendar</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1 className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-tight tracking-tight text-balance break-words" style={{ color: 'var(--surface-text)' }}>
           Calendar unreachable
         </h1>
       </div>
       <div className="mt-8">
-        <div className="bezel-shell">
-          <div className="bezel-core p-5 md:p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Warning
-                size={22}
-                weight="regular"
-                className="text-amber_lab shrink-0 mt-0.5"
-              />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/tasks/range
-                </p>
-              </div>
+        <div className="lab-card p-5 md:p-6">
+          <div className="flex items-start gap-3 min-w-0">
+            <WifiSlash
+              size={22}
+              weight="regular"
+              className="shrink-0 mt-0.5"
+              style={{ color: 'var(--warn)' }}
+            />
+            <div className="min-w-0">
+              <p className="text-[15px] leading-relaxed break-words" style={{ color: 'var(--surface-text)' }}>
+                {message}
+              </p>
+              <p className="mt-1 text-[12px] font-mono" style={{ color: 'var(--surface-muted)' }}>
+                GET /api/tasks/range
+              </p>
             </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
             >
               <ArrowClockwise
                 size={16}
                 weight="regular"
-                className="transition-transform duration-450 ease-fluid group-hover:rotate-[60deg]"
+                className="transition-transform duration-300 group-hover:rotate-[60deg]"
               />
               <span>Retry</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px] inline-flex items-center gap-2"
+            >
+              Change Server URL
             </button>
           </div>
         </div>
       </div>
+      {showUrlModal && <ServerUrlModal onClose={() => setShowUrlModal(false)} />}
     </div>
   )
 }

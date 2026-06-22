@@ -27,6 +27,7 @@ import {
   GitBranch,
   TreeStructure,
   Warning,
+  WifiSlash,
 } from 'phosphor-react'
 
 import {
@@ -38,6 +39,8 @@ import {
   type LineageRow,
   type SpeciesRow,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -235,14 +238,23 @@ function LineageReady({
         <div className="pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Lineage</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
+            <span
+              className="text-[10px] uppercase tracking-eyebrow"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               Step 4 · Genetic Tracking
             </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1
+            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            style={{ color: 'var(--surface-text)' }}
+          >
             Family trees.
           </h1>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
+          <p
+            className="mt-3 max-w-xl text-[15px] leading-relaxed"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             Every strain has a code, a generation count, and a 90-day
             biological-efficiency average. Watch for the brick-out flags — those
             lineages are due for a spore refresh.
@@ -279,10 +291,8 @@ function LineageReady({
         {/* Per-species lineage views */}
         <div className="mt-6 md:mt-8 space-y-4 md:space-y-6 min-w-0">
           {views.length === 0 ? (
-            <div className="bezel-shell">
-              <div className="bezel-core p-6 text-center text-[14px] text-graphite-500">
-                No species configured.
-              </div>
+            <div className="lab-card p-6 text-center text-[14px]" style={{ color: 'var(--surface-muted)' }}>
+              No species configured.
             </div>
           ) : (
             views.map((v, i) => (
@@ -296,8 +306,11 @@ function LineageReady({
           )}
         </div>
 
-        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div
+          className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of lineage registry</span>
         </div>
       </motion.div>
@@ -337,52 +350,65 @@ function SenescenceRiskPanel({
   }
 
   return (
-    <div className="bezel-shell">
-      <div
-        className={
-          'bezel-core p-4 md:p-6 ' +
-          (flagged.length > 0 ? 'ring-2 ring-[#B23A2A]/20' : '')
-        }
-      >
-        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
-          <div className="min-w-0 flex-1">
-            <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
-              Senescence risk
-            </span>
-            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
-              {flagged.length === 0
-                ? 'No flag — all lineages healthy.'
-                : `${flagged.length} lineage${flagged.length === 1 ? '' : 's'} below threshold`}
-            </h2>
-          </div>
-          <div className="shrink-0 h-10 w-10 rounded-full bg-[#B23A2A]/10 text-[#B23A2A] flex items-center justify-center">
-            <Warning size={20} weight="regular" />
-          </div>
+    <div
+      className="lab-card p-4 md:p-6"
+      style={flagged.length > 0 ? { outline: '2px solid rgba(178,58,42,0.2)' } : {}}
+    >
+      <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+        <div className="min-w-0 flex-1">
+          <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
+            Senescence risk
+            <HelpTooltip
+              title="Senescence Risk"
+              text="Lineages whose 90-day average biological efficiency (BE%) has dropped below the species-specific threshold. These strains should be refreshed from spore or a healthy clone."
+            />
+          </span>
+          <h2
+            className="mt-3 font-sans font-bold text-2xl md:text-3xl leading-[1.05] tracking-tight text-balance"
+            style={{ color: 'var(--surface-text)' }}
+          >
+            {flagged.length === 0
+              ? 'No flag — all lineages healthy.'
+              : `${flagged.length} lineage${flagged.length === 1 ? '' : 's'} below threshold`}
+          </h2>
         </div>
-        <p className="text-[13px] text-graphite-500 mt-1 mb-4">
-          Lineages whose 90-day average biological efficiency has dropped below{' '}
-          the species threshold.
-        </p>
-
-        {flagged.length === 0 ? (
-          <div className="rounded-2xl bg-moss-700/[0.06] ring-1 ring-moss-700/15 px-4 py-4 text-[13px] text-ink/70 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
-            Run a few harvests to populate BE history.
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <AnimatePresence initial={false}>
-              {flagged.map((f, i) => (
-                <FlaggedLineageRow
-                  key={f.lineage.id}
-                  flag={f}
-                  entryDelayMs={Math.min(i * 60, 360)}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-        )}
+        <div className="shrink-0 h-10 w-10 rounded-full bg-[#B23A2A]/10 text-[#B23A2A] flex items-center justify-center">
+          <Warning size={20} weight="regular" />
+        </div>
       </div>
+      <p
+        className="text-[13px] mt-1 mb-4"
+        style={{ color: 'var(--surface-muted)' }}
+      >
+        Lineages whose 90-day average biological efficiency has dropped below{' '}
+        the species threshold.
+      </p>
+
+      {flagged.length === 0 ? (
+        <div
+          className="rounded-2xl px-4 py-4 text-[13px] flex items-center gap-2"
+          style={{
+            background: 'var(--bio-green-dim)',
+            border: '1px solid rgba(31,61,43,0.3)',
+            color: 'var(--surface-muted)',
+          }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
+          Run a few harvests to populate BE history.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <AnimatePresence initial={false}>
+            {flagged.map((f, i) => (
+              <FlaggedLineageRow
+                key={f.lineage.id}
+                flag={f}
+                entryDelayMs={Math.min(i * 60, 360)}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
     </div>
   )
 }
@@ -413,26 +439,51 @@ function FlaggedLineageRow({
         delay: entryDelayMs / 1000,
       }}
     >
-      <div className="rounded-2xl ring-1 ring-[#B23A2A]/25 bg-[#B23A2A]/[0.04] p-3.5 min-w-0">
+      <div
+        className="rounded-2xl p-3.5 min-w-0"
+        style={{
+          border: '1px solid rgba(178,58,42,0.25)',
+          background: 'rgba(178,58,42,0.04)',
+        }}
+      >
         <div className="flex items-baseline justify-between gap-3 min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-ink text-[15px] leading-tight break-words">
+            <div
+              className="font-medium text-[15px] leading-tight break-words"
+              style={{ color: 'var(--surface-text)' }}
+            >
               {flag.speciesName}
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/50 mt-0.5 break-all">
+            <div
+              className="font-mono text-[11px] uppercase tracking-eyebrow mt-0.5 break-all"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               {flag.lineage.lineage_code}
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="font-serif text-xl md:text-2xl leading-none text-num text-[#B23A2A]">
+            <div className="font-sans font-bold text-xl md:text-2xl leading-none text-num text-[#B23A2A]">
               {flag.be90d != null ? pct(flag.be90d) : '—'}
             </div>
-            <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono mt-1">
+            <div
+              className="text-[10px] uppercase tracking-eyebrow font-mono mt-1"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               90-day BE
+              <HelpTooltip
+                title="90-Day BE%"
+                text="Biological Efficiency: weight of fresh mushrooms harvested ÷ dry weight of substrate used, averaged over the last 90 days. Higher is better; below the threshold means this lineage is underperforming."
+              />
             </div>
           </div>
         </div>
-        <div className="mt-2 pt-2 border-t border-[#B23A2A]/15 flex items-center justify-between text-[11px] text-ink/60 gap-2 min-w-0">
+        <div
+          className="mt-2 pt-2 flex items-center justify-between text-[11px] gap-2 min-w-0"
+          style={{
+            borderTop: '1px solid rgba(178,58,42,0.15)',
+            color: 'var(--surface-muted)',
+          }}
+        >
           <span className="font-mono uppercase tracking-eyebrow">
             Target {pct(flag.targetBe)}
           </span>
@@ -480,67 +531,85 @@ function SpeciesLineageCard({
         delay: Math.min(index * 80, 360) / 1000,
       }}
     >
-      <div className="bezel-shell">
-        <div className="bezel-core p-4 md:p-6">
-          <div className="flex items-start justify-between gap-3 mb-4 min-w-0">
-            <div className="min-w-0 flex-1">
-              <span className="eyebrow-tag">
-                {view.species.common_name}
-              </span>
-              <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink break-words text-balance">
-                {view.lineages.length} lineage
-                {view.lineages.length === 1 ? '' : 's'}
-              </h2>
-              <p className="text-[13px] text-graphite-500 mt-1">
-                Target BE {pct(targetBe)} · threshold{' '}
-                {pct(minAcceptable)} ({(senescPct * 100).toFixed(0)}% below
-                target)
-              </p>
-            </div>
-            <div className="shrink-0 h-10 w-10 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
-              <TreeStructure size={20} weight="regular" />
-            </div>
+      <div className="lab-card p-4 md:p-6">
+        <div className="flex items-start justify-between gap-3 mb-4 min-w-0">
+          <div className="min-w-0 flex-1">
+            <span className="eyebrow-tag">
+              {view.species.common_name}
+            </span>
+            <h2
+              className="mt-3 font-sans font-bold text-2xl md:text-3xl leading-[1.05] tracking-tight break-words text-balance"
+              style={{ color: 'var(--surface-text)' }}
+            >
+              {view.lineages.length} lineage
+              {view.lineages.length === 1 ? '' : 's'}
+            </h2>
+            <p
+              className="text-[13px] mt-1"
+              style={{ color: 'var(--surface-muted)' }}
+            >
+              Target BE {pct(targetBe)} · threshold{' '}
+              {pct(minAcceptable)} ({(senescPct * 100).toFixed(0)}% below
+              target)
+              <HelpTooltip
+                title="BE Threshold"
+                text="If a lineage's 90-day average BE% drops this far below the species target, it is flagged as senescent and due for a genetic refresh."
+              />
+            </p>
           </div>
+          <div
+            className="shrink-0 h-10 w-10 rounded-full flex items-center justify-center"
+            style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+          >
+            <TreeStructure size={20} weight="regular" />
+          </div>
+        </div>
 
-          {view.lineages.length === 0 ? (
-            <div className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-6 text-center text-[13px] text-graphite-500">
-              No lineages registered for this species yet.
+        {view.lineages.length === 0 ? (
+          <div
+            className="rounded-2xl px-4 py-6 text-center text-[13px]"
+            style={{
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              color: 'var(--surface-muted)',
+            }}
+          >
+            No lineages registered for this species yet.
+          </div>
+        ) : (
+          <>
+            {/* Desktop 4-column grid */}
+            <div className="hidden md:grid md:grid-cols-4 gap-3 min-w-0">
+              {GEN_LABELS.map((col) => (
+                <GenerationColumn
+                  key={col.gen}
+                  label={col.name}
+                  hint={col.hint}
+                  lineages={view.lineages.filter(
+                    (l) => l.generation_count === col.gen,
+                  )}
+                  batchesByLineage={batchesByLineage}
+                  targetBe={targetBe}
+                  minAcceptable={minAcceptable}
+                />
+              ))}
             </div>
-          ) : (
-            <>
-              {/* Desktop 4-column grid */}
-              <div className="hidden md:grid md:grid-cols-4 gap-3 min-w-0">
-                {GEN_LABELS.map((col) => (
-                  <GenerationColumn
-                    key={col.gen}
-                    label={col.name}
-                    hint={col.hint}
-                    lineages={view.lineages.filter(
-                      (l) => l.generation_count === col.gen,
-                    )}
-                    batchesByLineage={batchesByLineage}
-                    targetBe={targetBe}
+
+            {/* Mobile: horizontal scrolling chip strip per lineage */}
+            <div className="md:hidden -mx-1 px-1">
+              <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
+                {view.lineages.map((l) => (
+                  <MobileLineageCard
+                    key={l.id}
+                    lineage={l}
+                    batches={batchesByLineage.get(l.id) ?? []}
                     minAcceptable={minAcceptable}
                   />
                 ))}
               </div>
-
-              {/* Mobile: horizontal scrolling chip strip per lineage */}
-              <div className="md:hidden -mx-1 px-1">
-                <div className="flex gap-3 overflow-x-auto pb-2 snap-x">
-                  {view.lineages.map((l) => (
-                    <MobileLineageCard
-                      key={l.id}
-                      lineage={l}
-                      batches={batchesByLineage.get(l.id) ?? []}
-                      minAcceptable={minAcceptable}
-                    />
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </motion.div>
   )
@@ -562,22 +631,50 @@ function GenerationColumn({
   minAcceptable: number
 }) {
   return (
-    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-3 min-w-0">
+    <div
+      className="rounded-2xl p-3 min-w-0"
+      style={{
+        border: '1px solid rgba(255,255,255,0.07)',
+        background: 'rgba(255,255,255,0.03)',
+      }}
+    >
       <div className="mb-3 flex items-baseline justify-between gap-2 min-w-0">
         <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
+          <div
+            className="text-[10px] uppercase tracking-eyebrow font-medium truncate"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             {label}
+            <HelpTooltip
+              title={label}
+              text={`${hint} — this column shows lineages currently at the ${label} propagation stage.`}
+            />
           </div>
-          <div className="text-[11px] text-graphite-500 mt-0.5 truncate">{hint}</div>
+          <div
+            className="text-[11px] mt-0.5 truncate"
+            style={{ color: 'var(--surface-muted)' }}
+          >
+            {hint}
+          </div>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num shrink-0">
+        <span
+          className="font-mono text-[10px] uppercase tracking-eyebrow text-num shrink-0"
+          style={{ color: 'var(--surface-muted)' }}
+        >
           {String(lineages.length).padStart(2, '0')}
         </span>
       </div>
 
       <div className="space-y-2 min-h-[60px] min-w-0">
         {lineages.length === 0 ? (
-          <div className="rounded-xl bg-black/[0.02] ring-1 ring-black/5 px-3 py-3 text-center text-[11px] text-ink/30">
+          <div
+            className="rounded-xl px-3 py-3 text-center text-[11px]"
+            style={{
+              background: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.05)',
+              color: 'var(--surface-muted)',
+            }}
+          >
             —
           </div>
         ) : (
@@ -611,7 +708,7 @@ function LineageChip({
   const be = lineage.avg_be_90d
   const isFlagged =
     lineage.is_senescent || (be != null && be < minAcceptable)
-  const accentColor = isFlagged ? '#B23A2A' : '#1F3D2B'
+  const accentColor = isFlagged ? '#B23A2A' : 'var(--bio-green)'
   const currentStage = batches.find((b) =>
     ['INCUBATING', 'COLONIZED', 'FRUITING'].includes(b.status),
   )
@@ -622,15 +719,19 @@ function LineageChip({
 
   return (
     <div
-      className={
-        'rounded-xl ring-1 bg-white px-3 py-2.5 min-w-0 ' +
-        (isFlagged
-          ? 'ring-[#B23A2A]/30 hover:ring-[#B23A2A]/50'
-          : 'ring-ink/[0.06] hover:ring-ink/[0.12]')
-      }
+      className="rounded-xl px-3 py-2.5 min-w-0"
+      style={{
+        border: isFlagged
+          ? '1px solid rgba(178,58,42,0.3)'
+          : '1px solid rgba(255,255,255,0.08)',
+        background: 'rgba(255,255,255,0.04)',
+      }}
     >
       <div className="flex items-baseline justify-between gap-2 min-w-0">
-        <div className="font-mono text-[11px] uppercase tracking-wide_lab text-ink break-all min-w-0">
+        <div
+          className="font-mono text-[11px] uppercase tracking-wide_lab break-all min-w-0"
+          style={{ color: 'var(--surface-text)' }}
+        >
           {lineage.lineage_code}
         </div>
         {isFlagged && (
@@ -639,20 +740,31 @@ function LineageChip({
           </span>
         )}
       </div>
-      <div className="mt-0.5 text-[10px] text-graphite-500 truncate">
+      <div
+        className="mt-0.5 text-[10px] truncate"
+        style={{ color: 'var(--surface-muted)' }}
+      >
         {originLabel(lineage.origin_type)}
       </div>
       <div className="mt-2 flex items-baseline gap-1.5 min-w-0">
         <span
-          className="font-serif text-lg md:text-xl leading-none text-num"
+          className="font-sans font-bold text-lg md:text-xl leading-none text-num"
           style={{ color: accentColor }}
         >
           {be != null ? pct(be) : '—'}
         </span>
-        <span className="text-[10px] text-ink/40 font-mono">BE</span>
+        <span
+          className="text-[10px] font-mono"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          BE
+        </span>
       </div>
       {be != null && (
-        <div className="mt-1.5 h-1 rounded-full bg-ink/5 overflow-hidden">
+        <div
+          className="mt-1.5 h-1 rounded-full overflow-hidden"
+          style={{ background: 'rgba(255,255,255,0.05)' }}
+        >
           <div
             className="h-full"
             style={{
@@ -663,7 +775,10 @@ function LineageChip({
         </div>
       )}
       {currentStage && stageGen != null && (
-        <div className="mt-1.5 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono break-words">
+        <div
+          className="mt-1.5 text-[10px] uppercase tracking-eyebrow font-mono break-words"
+          style={{ color: 'var(--surface-muted)' }}
+        >
           now · {currentStage.species_name ?? 'batch'} · gen {stageGen}
         </div>
       )}
@@ -685,25 +800,43 @@ function MobileLineageCard({
     lineage.is_senescent || (be != null && be < minAcceptable)
   return (
     <div
-      className={
-        'snap-start shrink-0 w-56 rounded-2xl ring-1 p-3 bg-white min-w-0 ' +
-        (isFlagged ? 'ring-[#B23A2A]/30' : 'ring-ink/[0.07]')
-      }
+      className="snap-start shrink-0 w-56 rounded-2xl p-3 min-w-0"
+      style={{
+        border: isFlagged
+          ? '1px solid rgba(178,58,42,0.3)'
+          : '1px solid rgba(255,255,255,0.07)',
+        background: 'rgba(255,255,255,0.04)',
+      }}
     >
-      <div className="font-mono text-[12px] uppercase tracking-wide_lab text-ink break-all">
+      <div
+        className="font-mono text-[12px] uppercase tracking-wide_lab break-all"
+        style={{ color: 'var(--surface-text)' }}
+      >
         {lineage.lineage_code}
       </div>
-      <div className="text-[11px] text-graphite-500 mt-0.5">
+      <div
+        className="text-[11px] mt-0.5"
+        style={{ color: 'var(--surface-muted)' }}
+      >
         {originLabel(lineage.origin_type)} · gen {lineage.generation_count}
       </div>
-      <div className="mt-2 font-serif text-2xl text-num text-ink">
+      <div
+        className="mt-2 font-sans font-bold text-2xl text-num"
+        style={{ color: 'var(--surface-text)' }}
+      >
         {be != null ? pct(be) : '—'}
       </div>
-      <div className="text-[10px] text-ink/40 font-mono uppercase tracking-eyebrow mt-0.5">
+      <div
+        className="text-[10px] font-mono uppercase tracking-eyebrow mt-0.5"
+        style={{ color: 'var(--surface-muted)' }}
+      >
         90-day BE
       </div>
       {batches.length > 0 && (
-        <div className="mt-2 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono whitespace-nowrap">
+        <div
+          className="mt-2 text-[10px] uppercase tracking-eyebrow font-mono whitespace-nowrap"
+          style={{ color: 'var(--surface-muted)' }}
+        >
           {batches.length} active batch{batches.length === 1 ? '' : 'es'}
         </div>
       )}
@@ -728,26 +861,30 @@ function StatTile({
 }) {
   const valueColor =
     tone === 'brick'
-      ? 'text-[#B23A2A]'
+      ? '#B23A2A'
       : tone === 'amber'
-      ? 'text-amber_lab'
-      : 'text-ink'
+      ? 'var(--warn)'
+      : 'var(--surface-text)'
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core px-3 md:px-4 py-4">
-        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
-            {label}
-          </span>
-          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
-        </div>
-        <div
-          className={
-            'font-serif text-2xl md:text-4xl leading-none text-num ' + valueColor
-          }
+    <div className="lab-card px-3 md:px-4 py-4">
+      <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+        <span
+          className="text-[10px] uppercase tracking-eyebrow font-medium truncate"
+          style={{ color: 'var(--surface-muted)' }}
         >
-          {value}
-        </div>
+          {label}
+        </span>
+        {icon && (
+          <span className="shrink-0" style={{ color: 'var(--surface-muted)' }}>
+            {icon}
+          </span>
+        )}
+      </div>
+      <div
+        className="font-sans font-bold text-2xl md:text-4xl leading-none text-num"
+        style={{ color: valueColor }}
+      >
+        {value}
       </div>
     </div>
   )
@@ -766,29 +903,23 @@ function LineageSkeleton() {
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bezel-shell">
-            <div className="bezel-core px-3 md:px-4 py-4">
-              <div className="h-2 w-16 rounded-full skeleton" />
-              <div className="mt-3 h-7 w-12 rounded-full skeleton" />
-            </div>
+          <div key={i} className="lab-card px-3 md:px-4 py-4">
+            <div className="h-2 w-16 rounded-full skeleton" />
+            <div className="mt-3 h-7 w-12 rounded-full skeleton" />
           </div>
         ))}
       </div>
-      <div className="mt-8 bezel-shell">
-        <div className="bezel-core p-5 space-y-3">
-          <div className="h-6 w-1/2 rounded-full skeleton" />
-          <div className="h-3 w-2/3 rounded-full skeleton" />
-          <div className="h-16 w-full rounded-2xl skeleton" />
-        </div>
+      <div className="mt-8 lab-card p-5 space-y-3">
+        <div className="h-6 w-1/2 rounded-full skeleton" />
+        <div className="h-3 w-2/3 rounded-full skeleton" />
+        <div className="h-16 w-full rounded-2xl skeleton" />
       </div>
-      <div className="mt-6 bezel-shell">
-        <div className="bezel-core p-5">
-          <div className="h-6 w-1/3 rounded-full skeleton mb-4" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 rounded-2xl skeleton" />
-            ))}
-          </div>
+      <div className="mt-6 lab-card p-5">
+        <div className="h-6 w-1/3 rounded-full skeleton mb-4" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 rounded-2xl skeleton" />
+          ))}
         </div>
       </div>
     </div>
@@ -802,32 +933,47 @@ function LineageError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
   return (
     <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Lineage</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1
+          className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+          style={{ color: 'var(--surface-text)' }}
+        >
           Lineage unreachable
         </h1>
       </div>
       <div className="mt-8">
-        <div className="bezel-shell">
-          <div className="bezel-core p-5 md:p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Warning size={22} weight="regular" className="text-amber_lab shrink-0 mt-0.5" />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/species · GET /api/species/:id/lineages · GET /api/batches
-                </p>
-              </div>
+        <div className="lab-card p-5 md:p-6">
+          <div className="flex items-start gap-3 min-w-0">
+            <WifiSlash
+              size={22}
+              weight="regular"
+              className="shrink-0 mt-0.5"
+              style={{ color: 'var(--warn)' }}
+            />
+            <div className="min-w-0">
+              <p
+                className="text-[15px] leading-relaxed break-words"
+                style={{ color: 'var(--surface-text)' }}
+              >
+                {message}
+              </p>
+              <p
+                className="mt-1 text-[12px] font-mono"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                GET /api/species · GET /api/species/:id/lineages · GET /api/batches
+              </p>
             </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="btn-primary min-h-[44px] group inline-flex items-center gap-2"
             >
               <ArrowClockwise
                 size={16}
@@ -836,9 +982,19 @@ function LineageError({
               />
               <span>Retry</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px] inline-flex items-center gap-2"
+            >
+              Change Server URL
+            </button>
           </div>
         </div>
       </div>
+      {showUrlModal && (
+        <ServerUrlModal onClose={() => setShowUrlModal(false)} />
+      )}
     </div>
   )
 }

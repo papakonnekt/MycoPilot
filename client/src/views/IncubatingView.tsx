@@ -32,7 +32,7 @@ import {
   ArrowClockwise,
   ArrowRight,
   ArrowUpRight,
-  CircleNotch,
+  WifiSlash,
 } from 'phosphor-react'
 
 import {
@@ -40,6 +40,8 @@ import {
   getBatches,
   type BatchRow,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -270,14 +272,23 @@ function IncubatingReady({
         <div className="pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Incubating</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
+            <span
+              className="text-[10px] uppercase tracking-eyebrow"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               Step 3 · Colonization Watch
             </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1
+            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            style={{ color: 'var(--surface-text)' }}
+          >
             Active batches.
           </h1>
-          <p className="mt-3 max-w-md text-[15px] leading-relaxed text-graphite-500">
+          <p
+            className="mt-3 max-w-md text-[15px] leading-relaxed"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             Overdue first, then on-track by closest target. A red bar means
             it's time to move the batch forward.
           </p>
@@ -306,8 +317,11 @@ function IncubatingReady({
         )}
 
         {/* Footnote */}
-        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div
+          className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of bench</span>
         </div>
 
@@ -363,40 +377,45 @@ function FloatingTopBar({
       className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl"
       style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
     >
-      <div className="bezel-shell">
-        <div className="bezel-core">
-          <div className="flex h-14 items-center justify-between gap-3 px-4 min-w-0">
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className={
-                  'h-1.5 w-1.5 rounded-full shrink-0 ' +
-                  (overdueCount > 0 ? 'bg-[#B23A2A]' : 'bg-moss-700')
-                }
-              />
-              <span className="font-serif text-[17px] leading-none text-ink truncate">
-                Incubating
-              </span>
-              <span className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/40 text-num whitespace-nowrap">
-                {String(activeCount).padStart(2, '0')}
-                {overdueCount > 0 && (
-                  <span className="ml-2 text-[#B23A2A]">
-                    · {overdueCount} over
-                  </span>
-                )}
-              </span>
-            </div>
-            <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-eyebrow text-ink/60 shrink-0 whitespace-nowrap">
-              <span className="text-num">
-                MEAN {Math.round(meanPct).toString().padStart(2, '0')}%
-              </span>
-            </div>
-          </div>
-          <div className="h-px w-full bg-ink/[0.06] overflow-hidden">
-            <motion.div
-              style={{ width: widthPct, backgroundColor: aggregateColor }}
-              className="h-full"
+      <div className="lab-card">
+        <div className="flex h-14 items-center justify-between gap-3 px-4 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span
+              className={'h-1.5 w-1.5 rounded-full shrink-0 '}
+              style={{ background: overdueCount > 0 ? '#B23A2A' : 'var(--bio-green)' }}
             />
+            <span
+              className="font-sans font-semibold text-[17px] leading-none truncate"
+              style={{ color: 'var(--surface-text)' }}
+            >
+              Incubating
+            </span>
+            <span
+              className="font-mono text-[11px] uppercase tracking-eyebrow text-num whitespace-nowrap"
+              style={{ color: 'var(--surface-muted)' }}
+            >
+              {String(activeCount).padStart(2, '0')}
+              {overdueCount > 0 && (
+                <span className="ml-2 text-[#B23A2A]">
+                  · {overdueCount} over
+                </span>
+              )}
+            </span>
           </div>
+          <div
+            className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-eyebrow shrink-0 whitespace-nowrap"
+            style={{ color: 'var(--surface-muted)' }}
+          >
+            <span className="text-num">
+              MEAN {Math.round(meanPct).toString().padStart(2, '0')}%
+            </span>
+          </div>
+        </div>
+        <div className="h-px w-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.06)' }}>
+          <motion.div
+            style={{ width: widthPct, backgroundColor: aggregateColor }}
+            className="h-full"
+          />
         </div>
       </div>
     </div>
@@ -475,7 +494,7 @@ function BatchCard({
     >
       <div
         className={
-          'relative bezel-shell ' +
+          'relative lab-card ' +
           (isOverdue ? 'ring-2 ring-[#B23A2A]/30' : '')
         }
       >
@@ -485,7 +504,7 @@ function BatchCard({
             className="absolute left-0 top-2 bottom-2 w-[2px] rounded-full bg-[#B23A2A] z-10"
           />
         )}
-        <div className="bezel-core p-4 md:p-6 min-h-[140px] relative">
+        <div className="p-4 md:p-6 min-h-[140px] relative">
           {/* Top row: eyebrow + species + meta */}
           <div className="flex items-start justify-between gap-3 min-w-0">
             <div className="min-w-0 flex-1">
@@ -496,20 +515,36 @@ function BatchCard({
                 }
               >
                 {stage}
+                <HelpTooltip
+                  title="Stage"
+                  text="The current phase of this batch: Colonizing (mycelium spreading through substrate), Spawn Run, Fruiting (pins forming), etc."
+                />
               </span>
-              <h3 className="mt-2 font-serif text-xl md:text-3xl leading-[1.1] tracking-tight text-ink break-words text-balance">
+              <h3
+                className="mt-2 font-sans font-bold text-xl md:text-3xl leading-[1.1] tracking-tight break-words text-balance"
+                style={{ color: 'var(--surface-text)' }}
+              >
                 {species}
               </h3>
             </div>
-            <div className="shrink-0 text-right font-mono text-[11px] text-ink/50 leading-tight min-w-0">
+            <div
+              className="shrink-0 text-right font-mono text-[11px] leading-tight min-w-0"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               <div className="whitespace-nowrap">
-                <span className="uppercase tracking-eyebrow text-ink/30">
+                <span
+                  className="uppercase tracking-eyebrow"
+                  style={{ color: 'var(--surface-muted)' }}
+                >
                   Started
                 </span>{' '}
                 <span className="text-num">{startedStr}</span>
               </div>
               <div className="mt-0.5 whitespace-nowrap">
-                <span className="uppercase tracking-eyebrow text-ink/30">
+                <span
+                  className="uppercase tracking-eyebrow"
+                  style={{ color: 'var(--surface-muted)' }}
+                >
                   Days in
                 </span>{' '}
                 <span className="text-num">{days != null ? String(days).padStart(2, '0') : '—'}</span>
@@ -519,12 +554,21 @@ function BatchCard({
 
           {/* Progress section */}
           <div className="mt-4 md:mt-5 min-w-0">
-            <div className="flex items-center justify-between text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
+            <div
+              className="flex items-center justify-between text-[10px] uppercase tracking-eyebrow font-mono"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               <span>Day 0</span>
-              <span>Target</span>
+              <span className="flex items-center gap-1">
+                Target
+                <HelpTooltip
+                  title="Colonization Target"
+                  text="The expected date when this batch completes its current phase. Calculated from start date plus species-specific typical duration."
+                />
+              </span>
             </div>
 
-            <div className="mt-1.5 h-1.5 rounded-full bg-ink/5 overflow-hidden">
+            <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
               <motion.div
                 style={{
                   width: widthPct,
@@ -549,7 +593,10 @@ function BatchCard({
 
             <div className="mt-3 flex items-baseline gap-3 flex-wrap min-w-0">
               <CountUpPct value={pct} isOverdue={isOverdue} />
-              <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/40 break-words">
+              <span
+                className="font-mono text-[10px] uppercase tracking-eyebrow break-words"
+                style={{ color: 'var(--surface-muted)' }}
+              >
                 {isComplete ? 'Complete' : isOverdue ? 'Overdue' : 'In progress'}
                 {' · '}
                 <span className="text-num">{targetStr}</span>
@@ -558,11 +605,15 @@ function BatchCard({
           </div>
 
           {/* Actions row */}
-          <div className="mt-4 md:mt-5 pt-3 md:pt-4 border-t border-ink/[0.06] flex items-center justify-between gap-2 min-w-0">
+          <div
+            className="mt-4 md:mt-5 pt-3 md:pt-4 flex items-center justify-between gap-2 min-w-0"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+          >
             {isOverdue ? (
               <button
                 type="button"
-                className="group min-h-[44px] inline-flex items-center gap-2 bezel-core-sm px-3.5 py-1.5 rounded-full text-sm font-medium text-[#B23A2A] hover:ring-[#B23A2A]/40 transition-all duration-450 ease-fluid"
+                className="group min-h-[44px] inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium text-[#B23A2A] transition-all duration-450 ease-fluid"
+                style={{ border: '1px solid rgba(178,58,42,0.3)' }}
                 aria-label={`Move ${species} to next phase`}
                 onClick={(e) => e.preventDefault()}
               >
@@ -576,7 +627,8 @@ function BatchCard({
             ) : (
               <button
                 type="button"
-                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium text-ink/50 hover:text-moss transition-colors duration-450 ease-fluid"
+                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium transition-colors duration-450 ease-fluid"
+                style={{ color: 'var(--surface-muted)' }}
                 onClick={(e) => e.preventDefault()}
                 aria-label={`Open ${species}`}
               >
@@ -588,7 +640,10 @@ function BatchCard({
                 />
               </button>
             )}
-            <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 truncate ml-2">
+            <span
+              className="font-mono text-[10px] uppercase tracking-eyebrow truncate ml-2"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               {row.batch_id ?? `#${row.id}`}
             </span>
           </div>
@@ -633,13 +688,11 @@ function CountUpPct({
 
   return (
     <span
-      className={
-        'font-serif text-2xl md:text-3xl leading-none text-num shrink-0 ' +
-        (isOverdue ? 'text-[#B23A2A]' : 'text-ink')
-      }
+      className="font-sans font-bold text-2xl md:text-3xl leading-none text-num shrink-0"
+      style={{ color: isOverdue ? '#B23A2A' : 'var(--surface-text)' }}
     >
       {display}
-      <span className="text-ink/40">%</span>
+      <span style={{ color: 'var(--surface-muted)' }}>%</span>
     </span>
   )
 }
@@ -655,17 +708,15 @@ function IncubatingSkeleton() {
         className="sticky z-30 mb-4 mx-3 md:mx-auto md:max-w-2xl"
         style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
       >
-        <div className="bezel-shell">
-          <div className="bezel-core">
-            <div className="flex h-14 items-center justify-between px-4">
-              <div className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-ink/10" />
-                <span className="h-3 w-20 rounded-full skeleton" />
-              </div>
-              <div className="h-3 w-16 rounded-full skeleton" />
+        <div className="lab-card">
+          <div className="flex h-14 items-center justify-between px-4">
+            <div className="flex items-center gap-2">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'rgba(255,255,255,0.1)' }} />
+              <span className="h-3 w-20 rounded-full skeleton" />
             </div>
-            <div className="h-px w-full bg-ink/[0.04]" />
+            <div className="h-3 w-16 rounded-full skeleton" />
           </div>
+          <div className="h-px w-full" style={{ background: 'rgba(255,255,255,0.04)' }} />
         </div>
       </div>
 
@@ -688,8 +739,8 @@ function IncubatingSkeleton() {
 function SkeletonBatchCard({ hero = false }: { hero?: boolean }) {
   return (
     <div className={hero ? 'md:col-span-2' : ''}>
-      <div className="bezel-shell">
-        <div className="bezel-core p-4 md:p-6 min-h-[140px]">
+      <div className="lab-card">
+        <div className="p-4 md:p-6 min-h-[140px]">
           <div className="flex items-start justify-between gap-3 min-w-0">
             <div className="flex-1 min-w-0 space-y-2">
               <div className="h-2.5 w-16 rounded-full skeleton" />
@@ -725,36 +776,47 @@ function IncubatingError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
   return (
     <div className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6">
       <div className="pt-2">
         <span className="eyebrow-tag">Incubating</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1
+          className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+          style={{ color: 'var(--surface-text)' }}
+        >
           Incubator unreachable
         </h1>
       </div>
       <div className="mt-8">
-        <div className="bezel-shell">
-          <div className="bezel-core p-5 md:p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <CircleNotch
-                size={22}
-                weight="regular"
-                className="text-amber_lab shrink-0 mt-0.5"
-              />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/batches
-                </p>
-              </div>
+        <div className="lab-card p-5 md:p-6">
+          <div className="flex items-start gap-3 min-w-0">
+            <WifiSlash
+              size={22}
+              weight="regular"
+              className="shrink-0 mt-0.5"
+              style={{ color: 'var(--warn)' }}
+            />
+            <div className="min-w-0">
+              <p
+                className="text-[15px] leading-relaxed break-words"
+                style={{ color: 'var(--surface-text)' }}
+              >
+                {message}
+              </p>
+              <p
+                className="mt-1 text-[12px] font-mono"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                GET /api/batches
+              </p>
             </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="btn-primary min-h-[44px] group inline-flex items-center gap-2"
             >
               <ArrowClockwise
                 size={16}
@@ -763,9 +825,19 @@ function IncubatingError({
               />
               <span>Retry</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px] inline-flex items-center gap-2"
+            >
+              Change Server URL
+            </button>
           </div>
         </div>
       </div>
+      {showUrlModal && (
+        <ServerUrlModal onClose={() => setShowUrlModal(false)} />
+      )}
     </div>
   )
 }
@@ -782,13 +854,19 @@ function EmptyState() {
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
       className="mt-10 md:mt-12"
     >
-      <div className="bezel-shell">
-        <div className="bezel-core px-6 py-12 md:py-14 text-center">
+      <div className="lab-card">
+        <div className="px-6 py-12 md:py-14 text-center">
           <SporeGlyph />
-          <h2 className="mt-5 font-serif text-3xl md:text-5xl leading-[0.95] tracking-tight text-ink text-balance">
+          <h2
+            className="mt-5 font-sans font-bold text-3xl md:text-5xl leading-[0.95] tracking-tight text-balance"
+            style={{ color: 'var(--surface-text)' }}
+          >
             No active batches.
           </h2>
-          <p className="mt-3 text-[14px] text-graphite-500 max-w-sm mx-auto">
+          <p
+            className="mt-3 text-[14px] max-w-sm mx-auto"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             Nothing colonizing, fruiting, or in spawn run. The bench is clear
             — start a new PC run to begin.
           </p>
@@ -800,7 +878,10 @@ function EmptyState() {
 
 function SporeGlyph() {
   return (
-    <div className="mx-auto h-12 w-12 rounded-full bg-moss-700/8 text-moss-700 flex items-center justify-center">
+    <div
+      className="mx-auto h-12 w-12 rounded-full flex items-center justify-center"
+      style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+    >
       <svg
         width="28"
         height="28"
@@ -809,12 +890,12 @@ function SporeGlyph() {
         xmlns="http://www.w3.org/2000/svg"
         aria-hidden
       >
-        <circle cx="14" cy="14" r="2" fill="#1F3D2B" />
+        <circle cx="14" cy="14" r="2" fill="var(--bio-green)" />
         {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => {
           const angle = (i / 8) * Math.PI * 2
           const x = 14 + Math.cos(angle) * 7
           const y = 14 + Math.sin(angle) * 7
-          return <circle key={i} cx={x} cy={y} r="1" fill="#1F3D2B" opacity="0.55" />
+          return <circle key={i} cx={x} cy={y} r="1" fill="var(--bio-green)" opacity="0.55" />
         })}
       </svg>
     </div>

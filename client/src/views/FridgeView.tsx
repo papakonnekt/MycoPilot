@@ -37,6 +37,7 @@ import {
   Thermometer,
   Trash,
   Warning,
+  WifiSlash,
 } from 'phosphor-react'
 
 import {
@@ -49,6 +50,8 @@ import {
   type FridgeSummaryRow,
   type InventoryPayload,
 } from '../lib/api'
+import { HelpTooltip } from '../components/HelpTooltip'
+import { ServerUrlModal } from '../components/ServerUrlModal'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -239,14 +242,23 @@ function FridgeReady({
         <div className="pt-2 min-w-0">
           <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Fridge</span>
-            <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
+            <span
+              className="text-[10px] uppercase tracking-eyebrow"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               Step 4 · Cold Storage
             </span>
           </div>
-          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+          <h1
+            className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+            style={{ color: 'var(--surface-text)' }}
+          >
             Gen 2 buffer.
           </h1>
-          <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
+          <p
+            className="mt-3 max-w-xl text-[15px] leading-relaxed"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             Spawned-grain inventory for next-week inoculations. Bags expire after
             90 days; the gauge turns amber as you cross min and brick below it.
           </p>
@@ -292,96 +304,131 @@ function FridgeReady({
         {/* Two-column bento: gauges left, bag grid right */}
         <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
           <section className="md:col-span-5 min-w-0">
-            <div className="bezel-shell">
-              <div className="bezel-core p-4 md:p-6">
-                <span className="eyebrow-tag">Stock gauges</span>
-                <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
-                  Species buffer
-                </h2>
-                <p className="text-[13px] text-graphite-500 mt-1 mb-5">
-                  Current net-available bags vs. min and target thresholds.
-                </p>
+            <div className="lab-card p-4 md:p-6">
+              <span className="eyebrow-tag">
+                Stock gauges
+                <HelpTooltip
+                  title="Stock Gauges"
+                  text="Net-available bags per species vs. your configured minimum and target thresholds. Red = below minimum, amber = below target."
+                />
+              </span>
+              <h2
+                className="mt-3 font-sans font-bold text-2xl md:text-3xl leading-[1.05] tracking-tight text-balance"
+                style={{ color: 'var(--surface-text)' }}
+              >
+                Species buffer
+              </h2>
+              <p
+                className="text-[13px] mt-1 mb-5"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                Current net-available bags vs. min and target thresholds.
+              </p>
 
-                {summaries.length === 0 ? (
-                  <div className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-6 text-center text-[13px] text-graphite-500">
-                    No species configured yet.
-                  </div>
-                ) : (
-                  <div className="space-y-5">
-                    {summaries.map((s) => (
-                      <Gauge key={s.species_id} row={s} />
-                    ))}
-                  </div>
-                )}
-              </div>
+              {summaries.length === 0 ? (
+                <div
+                  className="rounded-2xl px-4 py-6 text-center text-[13px]"
+                  style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    color: 'var(--surface-muted)',
+                  }}
+                >
+                  No species configured yet.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {summaries.map((s) => (
+                    <Gauge key={s.species_id} row={s} />
+                  ))}
+                </div>
+              )}
             </div>
           </section>
 
           <section className="md:col-span-7 min-w-0">
-            <div className="bezel-shell">
-              <div className="bezel-core p-4 md:p-6">
-                <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
-                  <div className="min-w-0">
-                    <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
-                      Active bags
-                    </span>
-                    <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
-                      Bag grid
-                    </h2>
+            <div className="lab-card p-4 md:p-6">
+              <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+                <div className="min-w-0">
+                  <span className="eyebrow-tag">
+                    Active bags
+                  </span>
+                  <h2
+                    className="mt-3 font-sans font-bold text-2xl md:text-3xl leading-[1.05] tracking-tight text-balance"
+                    style={{ color: 'var(--surface-text)' }}
+                  >
+                    Bag grid
+                  </h2>
+                </div>
+              </div>
+              <p
+                className="text-[13px] mt-1 mb-5"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                Days-remaining counts down from 90. Manually expire any
+                bag that's gone off.
+              </p>
+
+              {fridge.active.length === 0 ? (
+                <EmptyBags />
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <AnimatePresence initial={false}>
+                    {fridge.active.map((b, i) => (
+                      <BagCard
+                        key={b.id}
+                        row={b}
+                        entryDelayMs={Math.min(i * 60, 360)}
+                        busy={busyId === b.id}
+                        onExpire={() => handleExpire(b.id)}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {fridge.expired.length > 0 && (
+                <div
+                  className="mt-6 pt-5"
+                  style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+                >
+                  <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
+                    Expired (audit)
+                  </span>
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {fridge.expired.slice(0, 6).map((b) => (
+                      <div
+                        key={b.id}
+                        className="rounded-2xl px-3 py-2 text-[12px] flex items-center justify-between gap-2 min-w-0"
+                        style={{
+                          border: '1px solid rgba(178,58,42,0.2)',
+                          background: 'rgba(178,58,42,0.04)',
+                          color: 'var(--surface-muted)',
+                        }}
+                      >
+                        <span className="break-words min-w-0 flex-1">
+                          {b.common_name}
+                        </span>
+                        <span
+                          className="font-mono text-num shrink-0 whitespace-nowrap"
+                          style={{ color: 'var(--surface-muted)' }}
+                        >
+                          {formatDateShort(b.date_expires)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <p className="text-[13px] text-graphite-500 mt-1 mb-5">
-                  Days-remaining counts down from 90. Manually expire any
-                  bag that's gone off.
-                </p>
-
-                {fridge.active.length === 0 ? (
-                  <EmptyBags />
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <AnimatePresence initial={false}>
-                      {fridge.active.map((b, i) => (
-                        <BagCard
-                          key={b.id}
-                          row={b}
-                          entryDelayMs={Math.min(i * 60, 360)}
-                          busy={busyId === b.id}
-                          onExpire={() => handleExpire(b.id)}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                )}
-
-                {fridge.expired.length > 0 && (
-                  <div className="mt-6 pt-5 border-t border-ink/[0.06]">
-                    <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
-                      Expired (audit)
-                    </span>
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {fridge.expired.slice(0, 6).map((b) => (
-                        <div
-                          key={b.id}
-                          className="rounded-2xl ring-1 ring-[#B23A2A]/20 bg-[#B23A2A]/[0.04] px-3 py-2 text-[12px] text-ink/70 flex items-center justify-between gap-2 min-w-0"
-                        >
-                          <span className="break-words min-w-0 flex-1">
-                            {b.common_name}
-                          </span>
-                          <span className="font-mono text-num text-ink/50 shrink-0 whitespace-nowrap">
-                            {formatDateShort(b.date_expires)}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </section>
         </div>
 
-        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
-          <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
+        <div
+          className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of fridge</span>
         </div>
       </motion.div>
@@ -401,11 +448,12 @@ function FridgeReady({
             }}
             role="status"
           >
-            <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
-                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
-                <span className="break-words min-w-0">{toast}</span>
-              </div>
+            <div
+              className="lab-card px-4 py-3 flex items-center gap-2 text-sm max-w-[min(92vw,32rem)]"
+              style={{ color: 'var(--surface-text)' }}
+            >
+              <Warning size={18} weight="regular" className="shrink-0" style={{ color: 'var(--warn)' }} />
+              <span className="break-words min-w-0">{toast}</span>
             </div>
           </motion.div>
         )}
@@ -431,26 +479,30 @@ function StatTile({
 }) {
   const valueColor =
     tone === 'brick'
-      ? 'text-[#B23A2A]'
+      ? '#B23A2A'
       : tone === 'amber'
-      ? 'text-amber_lab'
-      : 'text-ink'
+      ? 'var(--warn)'
+      : 'var(--surface-text)'
   return (
-    <div className="bezel-shell">
-      <div className="bezel-core px-3 md:px-4 py-4">
-        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
-            {label}
-          </span>
-          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
-        </div>
-        <div
-          className={
-            'font-serif text-2xl md:text-4xl leading-none text-num ' + valueColor
-          }
+    <div className="lab-card px-3 md:px-4 py-4">
+      <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+        <span
+          className="text-[10px] uppercase tracking-eyebrow font-medium truncate"
+          style={{ color: 'var(--surface-muted)' }}
         >
-          {value}
-        </div>
+          {label}
+        </span>
+        {icon && (
+          <span className="shrink-0" style={{ color: 'var(--surface-muted)' }}>
+            {icon}
+          </span>
+        )}
+      </div>
+      <div
+        className="font-sans font-bold text-2xl md:text-4xl leading-none text-num"
+        style={{ color: valueColor }}
+      >
+        {value}
       </div>
     </div>
   )
@@ -493,33 +545,52 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
     <div className="min-w-0">
       <div className="flex items-baseline justify-between mb-1.5 gap-2 min-w-0">
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-ink text-[15px] leading-tight break-words">
+          <div
+            className="font-medium text-[15px] leading-tight break-words"
+            style={{ color: 'var(--surface-text)' }}
+          >
             {row.common_name}
           </div>
-          <div className="text-[11px] text-ink/40 font-mono uppercase tracking-eyebrow">
+          <div
+            className="text-[11px] font-mono uppercase tracking-eyebrow"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             min {min} · target {target}
+            <HelpTooltip
+              title="Min & Target Thresholds"
+              text="Min = minimum bags needed to keep inoculations running without a gap. Target = ideal buffer to absorb contamination losses."
+            />
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className="font-serif text-2xl leading-none text-num text-ink">
+          <div
+            className="font-sans font-bold text-2xl leading-none text-num"
+            style={{ color: 'var(--surface-text)' }}
+          >
             {current}
           </div>
-          <div className="text-[10px] text-ink/40 font-mono uppercase tracking-eyebrow mt-0.5">
+          <div
+            className="text-[10px] font-mono uppercase tracking-eyebrow mt-0.5"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             bags
           </div>
         </div>
       </div>
 
-      <div className="relative h-2 rounded-full bg-ink/[0.06] overflow-hidden">
+      <div
+        className="relative h-2 rounded-full overflow-hidden"
+        style={{ background: 'rgba(255,255,255,0.06)' }}
+      >
         <div
           aria-hidden
-          className="absolute inset-y-0 left-0 bg-amber_lab/15"
-          style={{ width: `${targetPct}%` }}
+          className="absolute inset-y-0 left-0"
+          style={{ width: `${targetPct}%`, background: 'rgba(185,122,31,0.15)' }}
         />
         <div
           aria-hidden
-          className="absolute inset-y-0 left-0 bg-[#B23A2A]/15"
-          style={{ width: `${minPct}%` }}
+          className="absolute inset-y-0 left-0"
+          style={{ width: `${minPct}%`, background: 'rgba(178,58,42,0.15)' }}
         />
         <motion.div
           style={{ width: widthPct, backgroundColor: fillTone }}
@@ -527,17 +598,20 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
         />
         <div
           aria-hidden
-          className="absolute inset-y-0 w-px bg-ink/40"
-          style={{ left: `${minPct}%` }}
+          className="absolute inset-y-0 w-px"
+          style={{ left: `${minPct}%`, background: 'rgba(255,255,255,0.4)' }}
         />
         <div
           aria-hidden
-          className="absolute inset-y-0 w-px bg-ink/30"
-          style={{ left: `${targetPct}%` }}
+          className="absolute inset-y-0 w-px"
+          style={{ left: `${targetPct}%`, background: 'rgba(255,255,255,0.3)' }}
         />
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
+      <div
+        className="mt-1.5 flex items-center justify-between text-[10px] uppercase tracking-eyebrow font-mono"
+        style={{ color: 'var(--surface-muted)' }}
+      >
         <span>0</span>
         <span>min {min}</span>
         <span>target {target}</span>
@@ -568,7 +642,7 @@ function BagCard({
       ? 'bg-[#B23A2A]/10 text-[#B23A2A]'
       : status.tone === 'aging'
       ? 'bg-amber_lab/15 text-amber_lab'
-      : 'bg-moss-700/10 text-moss-700'
+      : 'bg-bio-green/10 text-bio-green'
 
   const days = row.days_until_expiry ?? null
   const addedDate = formatDateShort(row.date_added)
@@ -587,19 +661,26 @@ function BagCard({
       }}
     >
       <div
-        className={
-          'rounded-2xl ring-1 bg-paper p-4 transition-all duration-450 ease-fluid min-w-0 ' +
-          (status.tone === 'critical'
-            ? 'ring-[#B23A2A]/30 hover:ring-[#B23A2A]/50'
-            : 'ring-ink/[0.07] hover:ring-ink/[0.15]')
-        }
+        className="rounded-2xl p-4 transition-all duration-450 ease-fluid min-w-0"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: status.tone === 'critical'
+            ? '1px solid rgba(178,58,42,0.3)'
+            : '1px solid rgba(255,255,255,0.08)',
+        }}
       >
         <div className="flex items-start justify-between gap-2 mb-2 min-w-0">
           <div className="min-w-0 flex-1">
-            <div className="font-medium text-ink text-[15px] leading-tight break-words">
+            <div
+              className="font-medium text-[15px] leading-tight break-words"
+              style={{ color: 'var(--surface-text)' }}
+            >
               {row.common_name ?? 'Species'}
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/40 mt-0.5 break-all">
+            <div
+              className="font-mono text-[11px] uppercase tracking-eyebrow mt-0.5 break-all"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               {row.batch_ref ?? `bag #${row.id}`}
             </div>
           </div>
@@ -615,34 +696,55 @@ function BagCard({
 
         <div className="flex items-baseline justify-between gap-2 min-w-0">
           <div>
-            <div className="font-serif text-2xl md:text-3xl leading-none text-num text-ink">
+            <div
+              className="font-sans font-bold text-2xl md:text-3xl leading-none text-num"
+              style={{ color: 'var(--surface-text)' }}
+            >
               {days != null ? days : '—'}
             </div>
-            <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono mt-1">
+            <div
+              className="text-[10px] uppercase tracking-eyebrow font-mono mt-1"
+              style={{ color: 'var(--surface-muted)' }}
+            >
               days left
             </div>
           </div>
-          <div className="text-right text-[11px] text-graphite-500 leading-tight min-w-0">
+          <div
+            className="text-right text-[11px] leading-tight min-w-0"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             <>
-              <span className="uppercase tracking-eyebrow text-ink/30">
+              <span
+                className="uppercase tracking-eyebrow"
+                style={{ color: 'var(--surface-muted)' }}
+              >
                 Added
               </span>{' '}
-              <span className="font-mono text-num text-ink/60 whitespace-nowrap">{addedDate}</span>
+              <span className="font-mono text-num whitespace-nowrap">{addedDate}</span>
             </>
             <div className="mt-0.5">
-              <span className="uppercase tracking-eyebrow text-ink/30">
+              <span
+                className="uppercase tracking-eyebrow"
+                style={{ color: 'var(--surface-muted)' }}
+              >
                 Expires
               </span>{' '}
-              <span className="font-mono text-num text-ink/60 whitespace-nowrap">{expiresDate}</span>
+              <span className="font-mono text-num whitespace-nowrap">{expiresDate}</span>
             </div>
           </div>
         </div>
 
-        <div className="mt-3 pt-3 border-t border-ink/[0.06] flex items-center justify-between gap-2 min-w-0">
-          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono whitespace-nowrap">
+        <div
+          className="mt-3 pt-3 flex items-center justify-between gap-2 min-w-0"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <div
+            className="text-[10px] uppercase tracking-eyebrow font-mono whitespace-nowrap"
+            style={{ color: 'var(--surface-muted)' }}
+          >
             qty {row.quantity_available}
             {row.reserved_quantity > 0 && (
-              <span className="ml-1 text-amber_lab">
+              <span className="ml-1" style={{ color: 'var(--warn)' }}>
                 · {row.reserved_quantity} reserved
               </span>
             )}
@@ -651,7 +753,11 @@ function BagCard({
             type="button"
             onClick={onExpire}
             disabled={busy}
-            className="group min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium ring-1 ring-ink/10 text-ink/60 hover:ring-[#B23A2A]/40 hover:text-[#B23A2A] transition-all duration-450 ease-fluid active:scale-[0.97]"
+            className="group min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium transition-all duration-450 ease-fluid active:scale-[0.97]"
+            style={{
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'var(--surface-muted)',
+            }}
           >
             {busy ? (
               <CircleNotch size={11} weight="regular" className="animate-spin" />
@@ -676,15 +782,28 @@ function EmptyBags() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
-      className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-6 py-10 text-center"
+      className="rounded-2xl px-6 py-10 text-center"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+      }}
     >
-      <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
+      <div
+        className="mx-auto mb-4 h-12 w-12 rounded-full flex items-center justify-center"
+        style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+      >
         <Snowflake size={24} weight="regular" />
       </div>
-      <h3 className="font-serif text-2xl text-ink leading-tight text-balance">
+      <h3
+        className="font-sans font-bold text-2xl leading-tight text-balance"
+        style={{ color: 'var(--surface-text)' }}
+      >
         Fridge is empty.
       </h3>
-      <p className="mt-2 text-[13px] text-graphite-500 max-w-sm mx-auto">
+      <p
+        className="mt-2 text-[13px] max-w-sm mx-auto"
+        style={{ color: 'var(--surface-muted)' }}
+      >
         Move a colonized Gen 2 batch to the fridge to start the 90-day clock.
       </p>
     </motion.div>
@@ -704,31 +823,25 @@ function FridgeSkeleton() {
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bezel-shell">
-            <div className="bezel-core px-3 md:px-4 py-4">
-              <div className="h-2 w-16 rounded-full skeleton" />
-              <div className="mt-3 h-7 w-12 rounded-full skeleton" />
-            </div>
+          <div key={i} className="lab-card px-3 md:px-4 py-4">
+            <div className="h-2 w-16 rounded-full skeleton" />
+            <div className="mt-3 h-7 w-12 rounded-full skeleton" />
           </div>
         ))}
       </div>
       <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
-        <div className="md:col-span-5 bezel-shell">
-          <div className="bezel-core p-4 md:p-5 space-y-5">
-            <div className="h-7 w-1/2 rounded-full skeleton" />
-            <div className="h-2 w-full rounded-full skeleton" />
-            <div className="h-2 w-full rounded-full skeleton" />
-            <div className="h-2 w-full rounded-full skeleton" />
-          </div>
+        <div className="md:col-span-5 lab-card p-4 md:p-5 space-y-5">
+          <div className="h-7 w-1/2 rounded-full skeleton" />
+          <div className="h-2 w-full rounded-full skeleton" />
+          <div className="h-2 w-full rounded-full skeleton" />
+          <div className="h-2 w-full rounded-full skeleton" />
         </div>
-        <div className="md:col-span-7 bezel-shell">
-          <div className="bezel-core p-4 md:p-5">
-            <div className="h-7 w-1/3 rounded-full skeleton mb-4" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-32 rounded-2xl skeleton" />
-              ))}
-            </div>
+        <div className="md:col-span-7 lab-card p-4 md:p-5">
+          <div className="h-7 w-1/3 rounded-full skeleton mb-4" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-32 rounded-2xl skeleton" />
+            ))}
           </div>
         </div>
       </div>
@@ -743,36 +856,47 @@ function FridgeError({
   message: string
   onRetry: () => void
 }) {
+  const [showUrlModal, setShowUrlModal] = useState(false)
   return (
     <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Fridge</span>
-        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
+        <h1
+          className="mt-4 md:mt-5 font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
+          style={{ color: 'var(--surface-text)' }}
+        >
           Fridge unreachable
         </h1>
       </div>
       <div className="mt-8">
-        <div className="bezel-shell">
-          <div className="bezel-core p-5 md:p-6">
-            <div className="flex items-start gap-3 min-w-0">
-              <Warning
-                size={22}
-                weight="regular"
-                className="text-amber_lab shrink-0 mt-0.5"
-              />
-              <div className="min-w-0">
-                <p className="text-[15px] text-ink leading-relaxed break-words">
-                  {message}
-                </p>
-                <p className="mt-1 text-[12px] text-ink/50 font-mono">
-                  GET /api/inventory · GET /api/inventory/fridge
-                </p>
-              </div>
+        <div className="lab-card p-5 md:p-6">
+          <div className="flex items-start gap-3 min-w-0">
+            <WifiSlash
+              size={22}
+              weight="regular"
+              className="shrink-0 mt-0.5"
+              style={{ color: 'var(--warn)' }}
+            />
+            <div className="min-w-0">
+              <p
+                className="text-[15px] leading-relaxed break-words"
+                style={{ color: 'var(--surface-text)' }}
+              >
+                {message}
+              </p>
+              <p
+                className="mt-1 text-[12px] font-mono"
+                style={{ color: 'var(--surface-muted)' }}
+              >
+                GET /api/inventory · GET /api/inventory/fridge
+              </p>
             </div>
+          </div>
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
+              className="btn-primary min-h-[44px] group inline-flex items-center gap-2"
             >
               <ArrowClockwise
                 size={16}
@@ -781,9 +905,19 @@ function FridgeError({
               />
               <span>Retry</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setShowUrlModal(true)}
+              className="btn-ghost min-h-[44px] inline-flex items-center gap-2"
+            >
+              Change Server URL
+            </button>
           </div>
         </div>
       </div>
+      {showUrlModal && (
+        <ServerUrlModal onClose={() => setShowUrlModal(false)} />
+      )}
     </div>
   )
 }

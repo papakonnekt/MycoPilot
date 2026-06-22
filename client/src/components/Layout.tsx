@@ -29,7 +29,7 @@ export function Layout() {
           (the page itself scrolls on mobile; desktop is a fixed column). */}
       <main
         className="
-          px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom,0px)+0.75rem)]
+          px-4 pt-4 pb-[calc(4.5rem+max(env(safe-area-inset-bottom,0px),16px)+1.5rem)]
           md:pl-[calc(16rem+1.5rem)] md:pr-8 md:pt-10 md:pb-12
           animate-rise_in
         "

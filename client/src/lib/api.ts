@@ -10,20 +10,68 @@
 // No transform layer — types match the server JSON exactly.
 // =============================================================
 
-const getApiBase = (): string => {
-  if (import.meta.env.VITE_API_BASE) {
-    return import.meta.env.VITE_API_BASE;
-  }
-  // If running in a native Capacitor wrapper, default to the stable Tailscale IP
-  if (typeof window !== 'undefined' && (window as any).Capacitor) {
-    return 'http://100.76.45.35:3001/api';
-  }
-  return typeof window !== 'undefined' && window.location.origin 
-    ? `${window.location.origin}/api` 
-    : 'http://localhost:3001/api';
-};
+// ─────────────────────────────────────────────────────────────
+// SERVER URL — runtime override via localStorage
+//
+// Priority chain:
+//   1. localStorage "myco_server_url"  ← user-set at runtime (survives APK restarts)
+//   2. VITE_API_BASE env var           ← baked in at build time (CI/CD default)
+//   3. Tailscale IP                    ← Capacitor fallback
+//   4. window.location.origin/api      ← browser dev fallback
+// ─────────────────────────────────────────────────────────────
 
-const API_BASE = getApiBase();
+const LS_KEY = 'myco_server_url'
+
+/** Persist a custom server base URL (e.g. "http://192.168.1.10:3001"). */
+export function saveServerUrl(raw: string): void {
+  // Strip trailing slash; normalise to include /api if missing
+  let url = raw.trim().replace(/\/+$/, '')
+  if (!url.endsWith('/api')) url = `${url}/api`
+  localStorage.setItem(LS_KEY, url)
+}
+
+/** Clear the runtime override — reverts to build-time / Tailscale default. */
+export function clearServerUrl(): void {
+  localStorage.removeItem(LS_KEY)
+}
+
+/** Read the currently configured server URL (without /api suffix, for display). */
+export function getConfiguredServerUrl(): string {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(LS_KEY) : null
+  if (stored) return stored.replace(/\/api$/, '')
+  if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE.replace(/\/api$/, '')
+  if (typeof window !== 'undefined' && (window as any).Capacitor) return 'http://100.76.45.35:3001'
+  return typeof window !== 'undefined' && window.location.origin ? window.location.origin : 'http://localhost:3001'
+}
+
+function getApiBase(): string {
+  // 1. Runtime override (user-set)
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(LS_KEY) : null
+  if (stored) return stored
+
+  // 2. Build-time env (e.g. set via GitHub Actions secret)
+  if (import.meta.env.VITE_API_BASE) return import.meta.env.VITE_API_BASE
+
+  // 3. Capacitor wrapper → Tailscale default
+  if (typeof window !== 'undefined' && (window as any).Capacitor) {
+    return 'http://100.76.45.35:3001/api'
+  }
+
+  // 4. Browser dev / desktop
+  return typeof window !== 'undefined' && window.location.origin
+    ? `${window.location.origin}/api`
+    : 'http://localhost:3001/api'
+}
+
+// Re-evaluated on every import to pick up the latest localStorage value.
+// Views that call saveServerUrl() should trigger a page reload or re-mount
+// to force a fresh API_BASE. The simplest approach: window.location.reload().
+let API_BASE = getApiBase()
+
+/** Force a re-evaluation of the API base (call after saveServerUrl). */
+export function refreshApiBase(): void {
+  API_BASE = getApiBase()
+}
 
 // ─────────────────────────────────────────────────────────────
 // ENVELOPE
