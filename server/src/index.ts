@@ -16,7 +16,7 @@ const PORT = process.env.PORT ?? 3001;
 // ── MIDDLEWARE ────────────────────────────────────────────────
 const allowedOrigins = process.env.CORS_ORIGIN 
   ? process.env.CORS_ORIGIN.split(',') 
-  : ['http://localhost:5173', 'http://localhost', 'capacitor://localhost'];
+  : ['http://localhost:5173', 'http://localhost', 'https://localhost', 'capacitor://localhost'];
 
 app.use(cors({
   origin: (origin, callback) => {
