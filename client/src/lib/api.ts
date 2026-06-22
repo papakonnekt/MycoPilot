@@ -10,10 +10,20 @@
 // No transform layer — types match the server JSON exactly.
 // =============================================================
 
-const API_BASE = import.meta.env.VITE_API_BASE || 
-  (typeof window !== 'undefined' && window.location.origin 
+const getApiBase = (): string => {
+  if (import.meta.env.VITE_API_BASE) {
+    return import.meta.env.VITE_API_BASE;
+  }
+  // If running in a native Capacitor wrapper, default to the stable Tailscale IP
+  if (typeof window !== 'undefined' && (window as any).Capacitor) {
+    return 'http://100.76.45.35:3001/api';
+  }
+  return typeof window !== 'undefined' && window.location.origin 
     ? `${window.location.origin}/api` 
-    : 'http://localhost:3001/api');
+    : 'http://localhost:3001/api';
+};
+
+const API_BASE = getApiBase();
 
 // ─────────────────────────────────────────────────────────────
 // ENVELOPE
