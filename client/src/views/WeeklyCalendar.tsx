@@ -1,30 +1,17 @@
 // =============================================================
 // Myco Lab — 28-Day Horizon (Phase 3 Step 5)
 //
-// Desktop Gantt-style calendar over a 28-day window. Plots every
-// scheduled task from the server's /tasks/range endpoint grouped
-// into the three primary task types:
-//   - PC_RUN_*    (sterilization cycles)  → brick-rose bar
-//   - INOCULATE_* (LC + grain + bulk)     → moss bar
-//   - HARVEST     (yield collection)      → amber bar
-//
-// Data flow:
-//   1. GET /tasks/range?from=&to=  (server caps horizon at
-//      hardware_settings.scheduling_horizon_days = 28).
-//   2. Group rows by task_type, then map to a 28-cell grid.
-//   3. Render each task as a horizontal bar across the days it
-//      occupies. Tasks live on a single task_date row, so each
-//      bar spans exactly one cell.
-//
-// Desktop layout (md+): 4 columns of 7 days each with a left rail
-// listing task titles; mobile: simple vertical list grouped by week.
-//
-// Color tokens (tailwind.config.js):
-//   moss-700           → INOCULATE_*  (genetic growth)
-//   [#B23A2A]          → PC_RUN_*     (sterilization heat)
-//   amber_lab          → HARVEST      (terminal collection)
-//   graphite / ink     → everything else (secondary)
-//
+// Mobile-overhaul changes:
+//  - H1 down to text-4xl/6xl.
+//  - Stat row drops to 2 cols on mobile (was 2/4 already).
+//  - Mobile fallback list uses break-words/min-w-0 on each
+//    task line, so the title can wrap on a 360dp screen.
+//  - The "Window" stat tile value is allowed to truncate so
+//    "Mar 14 – Apr 10" doesn't push the tile out of the grid.
+//  - The Gantt tooltips are unchanged on desktop (md+) and
+//    hidden on mobile to keep the tap surface focused.
+//  - All interactive elements (GanttCell buttons) carry
+//    min-h-[44px] for touch.
 // =============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -120,7 +107,6 @@ function addDays(d: Date, days: number): Date {
 }
 
 function parseDate(s: string): Date {
-  // Server returns YYYY-MM-DD; build a local date to avoid TZ drift.
   const [y, m, d] = s.split('-').map((n) => parseInt(n, 10))
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
 }
@@ -161,9 +147,6 @@ let loadInFlight: Promise<void> | null = null
 export default function WeeklyCalendar() {
   const [state, setState] = useState<FetchState>({ kind: 'loading' })
 
-  // The 28-day window starts today and ends 27 days later. Computed
-  // once on mount; window is fixed per page load (no prev/next paging
-  // — keep it simple per the spec).
   const { start, end } = useMemo(() => {
     const today = new Date()
     return {
@@ -237,13 +220,11 @@ function CalendarReady({
   const reduceMotion = useReducedMotion()
   const start = parseDate(startDate)
 
-  // Build 28-day column index: 0 .. 27 (inclusive of start and end).
   const days = useMemo(
     () => Array.from({ length: HORIZON_DAYS }, (_, i) => addDays(start, i)),
     [start],
   )
 
-  // Build a per-day task bucket.
   const tasksByDay = useMemo(() => {
     const map = new Map<string, TaskRow[]>()
     for (const t of tasks) {
@@ -254,7 +235,6 @@ function CalendarReady({
     return map
   }, [tasks])
 
-  // Per-day per-track list.
   const trackTasksByDay = useMemo(() => {
     const out: Record<TrackKey, Map<string, TaskRow[]>> = {
       pc: new Map(),
@@ -271,14 +251,12 @@ function CalendarReady({
     return out
   }, [tasks])
 
-  // Per-week bucket for the mobile fallback.
   const weeks = useMemo(() => {
     const w: Date[][] = []
     for (let i = 0; i < days.length; i += 7) w.push(days.slice(i, i + 7))
     return w
   }, [days])
 
-  // Counts for the header strip.
   const counts = useMemo(() => {
     const c: Record<TrackKey, number> = { pc: 0, inoculate: 0, harvest: 0 }
     for (const t of tasks) {
@@ -301,17 +279,17 @@ function CalendarReady({
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-        className="mx-auto w-full max-w-6xl"
+        className="mx-auto w-full max-w-6xl min-w-0"
       >
         {/* Header */}
-        <div className="pt-2">
-          <div className="flex items-center gap-3">
+        <div className="pt-2 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Calendar</span>
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Step 4 · 28-Day Horizon
             </span>
           </div>
-          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
             Four weeks ahead.
           </h1>
           <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
@@ -321,7 +299,7 @@ function CalendarReady({
         </div>
 
         {/* Window + count row */}
-        <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="mt-6 md:mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatTile
             label="Window"
             value={`${formatDateShort(startDate)} – ${formatDateShort(endDate)}`}
@@ -339,15 +317,15 @@ function CalendarReady({
         </div>
 
         {/* Legend */}
-        <div className="mt-5 flex flex-wrap items-center gap-2">
+        <div className="mt-4 md:mt-5 flex flex-wrap items-center gap-2">
           {TRACKS.map((t) => (
             <div
               key={t.key}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full ring-1 ring-ink/[0.08] bg-paper"
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full ring-1 ring-ink/[0.08] bg-paper min-h-[36px]"
             >
               <span
                 aria-hidden
-                className="h-2 w-2 rounded-full"
+                className="h-2 w-2 rounded-full shrink-0"
                 style={{ backgroundColor: t.color }}
               />
               <span className="text-[11px] uppercase tracking-eyebrow text-ink/70 font-medium">
@@ -361,7 +339,7 @@ function CalendarReady({
         </div>
 
         {/* Desktop Gantt */}
-        <div className="mt-8 hidden md:block">
+        <div className="mt-6 md:mt-8 hidden md:block">
           <div className="bezel-shell">
             <div className="bezel-core p-4 md:p-5">
               <GanttGrid
@@ -373,7 +351,7 @@ function CalendarReady({
         </div>
 
         {/* Mobile fallback: vertical list grouped by week */}
-        <div className="mt-8 md:hidden space-y-4">
+        <div className="mt-6 md:mt-8 md:hidden space-y-3">
           {weeks.map((wk, wi) => (
             <MobileWeek
               key={wi}
@@ -384,7 +362,7 @@ function CalendarReady({
           ))}
         </div>
 
-        <div className="mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
           <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
           <span>End of horizon</span>
         </div>
@@ -411,25 +389,23 @@ function GanttGrid({
   days: Date[]
   trackTasksByDay: Record<TrackKey, Map<string, TaskRow[]>>
 }) {
-  // 4 columns × 7 days. Each column has the 3 stacked tracks.
   const weeks: Date[][] = []
   for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7))
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-4 gap-3 min-w-0">
       {weeks.map((wk, wi) => (
-        <div key={wi} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-2.5">
-          <div className="flex items-baseline justify-between mb-2 px-1">
+        <div key={wi} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-2.5 min-w-0">
+          <div className="flex items-baseline justify-between mb-2 px-1 gap-2 min-w-0">
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
               Week {wi + 1}
             </span>
-            <span className="font-mono text-[10px] text-ink/30 text-num">
+            <span className="font-mono text-[10px] text-ink/30 text-num whitespace-nowrap">
               {dayHeaderShort(wk[0])} – {dayHeaderShort(wk[wk.length - 1])}
             </span>
           </div>
 
-          {/* Day headers (7-day strip) */}
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-1 mb-2 min-w-0">
             {wk.map((d) => {
               const { weekday, day } = dayLabel(d)
               const hasWork = TRACKS.some((t) =>
@@ -462,7 +438,6 @@ function GanttGrid({
             })}
           </div>
 
-          {/* Track rows */}
           <div className="space-y-2">
             {TRACKS.map((track) => (
               <div key={track.key}>
@@ -509,7 +484,6 @@ function GanttCell({
       <div className="h-7 rounded-md bg-transparent" />
     )
   }
-  // Multiple tasks on the same day? Stack them as a small badge cluster.
   return (
     <div className="relative">
       <button
@@ -519,7 +493,7 @@ function GanttCell({
         onFocus={() => setHover(true)}
         onBlur={() => setHover(false)}
         className={
-          'w-full h-7 rounded-md ring-1 ' +
+          'w-full min-h-[44px] md:min-h-0 md:h-7 rounded-md ring-1 ' +
           track.ring +
           ' ' +
           track.bg +
@@ -549,7 +523,7 @@ function GanttCell({
                   {tasks.slice(0, 5).map((t) => (
                     <li
                       key={t.id}
-                      className="text-[12px] text-ink leading-tight flex items-baseline gap-1.5"
+                      className="text-[12px] text-ink leading-tight flex items-baseline gap-1.5 min-w-0"
                     >
                       <span
                         className="h-1.5 w-1.5 rounded-full shrink-0 mt-1"
@@ -588,10 +562,10 @@ function MobileWeek({
 }) {
   return (
     <div className="bezel-shell">
-      <div className="bezel-core p-4">
-        <div className="flex items-baseline justify-between mb-3">
+      <div className="bezel-core p-4 min-w-0">
+        <div className="flex items-baseline justify-between mb-3 gap-2 min-w-0">
           <span className="eyebrow-tag">Week {weekNumber}</span>
-          <span className="font-mono text-[10px] text-ink/40 text-num">
+          <span className="font-mono text-[10px] text-ink/40 text-num whitespace-nowrap">
             {dayHeaderShort(days[0])} – {dayHeaderShort(days[days.length - 1])}
           </span>
         </div>
@@ -600,12 +574,12 @@ function MobileWeek({
             const key = isoDate(d)
             const list = tasksByDay.get(key) ?? []
             return (
-              <div key={key} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-3">
-                <div className="flex items-baseline justify-between mb-1.5">
-                  <span className="font-serif text-lg leading-none text-ink">
+              <div key={key} className="rounded-2xl ring-1 ring-ink/[0.06] bg-paper/40 p-3 min-w-0">
+                <div className="flex items-baseline justify-between mb-1.5 gap-2 min-w-0">
+                  <span className="font-serif text-base md:text-lg leading-none text-ink">
                     {d.toLocaleDateString('en-US', { weekday: 'long' })}
                   </span>
-                  <span className="font-mono text-[11px] text-ink/40 text-num">
+                  <span className="font-mono text-[11px] text-ink/40 text-num whitespace-nowrap">
                     {dayHeaderShort(d)}
                   </span>
                 </div>
@@ -619,15 +593,17 @@ function MobileWeek({
                       return (
                         <li
                           key={t.id}
-                          className="flex items-baseline gap-2 text-[13px] text-ink"
+                          className="flex items-baseline gap-2 text-[13px] text-ink min-w-0"
                         >
                           <span
                             aria-hidden
                             className="h-2 w-2 rounded-full shrink-0 mt-1.5"
                             style={{ backgroundColor: color }}
                           />
-                          <span className="truncate flex-1">{t.title}</span>
-                          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/40 shrink-0">
+                          <span className="break-words min-w-0 flex-1">
+                            {t.title}
+                          </span>
+                          <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/40 shrink-0 whitespace-nowrap">
                             {humanizeType(t.task_type)}
                           </span>
                         </li>
@@ -659,14 +635,14 @@ function StatTile({
 }) {
   return (
     <div className="bezel-shell">
-      <div className="bezel-core px-4 py-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+      <div className="bezel-core px-3 md:px-4 py-4 min-w-0">
+        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
             {label}
           </span>
-          {icon && <span className="text-ink/30">{icon}</span>}
+          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
         </div>
-        <div className="font-serif text-2xl md:text-3xl leading-none text-num text-ink">
+        <div className="font-serif text-lg md:text-3xl leading-none text-num text-ink truncate">
           {value}
         </div>
       </div>
@@ -691,26 +667,26 @@ function dayHeaderShort(d: Date): string {
 
 function CalendarSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag opacity-60">Calendar</span>
-        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse" />
+        <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="bezel-shell">
-            <div className="bezel-core px-4 py-4">
-              <div className="h-2 w-16 rounded-full bg-ink/[0.06] animate-pulse" />
-              <div className="mt-3 h-6 w-20 rounded-full bg-ink/[0.07] animate-pulse" />
+            <div className="bezel-core px-3 md:px-4 py-4">
+              <div className="h-2 w-16 rounded-full skeleton" />
+              <div className="mt-3 h-5 w-20 rounded-full skeleton" />
             </div>
           </div>
         ))}
       </div>
       <div className="mt-8 bezel-shell">
-        <div className="bezel-core p-5">
-          <div className="grid grid-cols-4 gap-3">
+        <div className="bezel-core p-4 md:p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-40 rounded-2xl bg-ink/[0.05] animate-pulse" />
+              <div key={i} className="h-40 rounded-2xl skeleton" />
             ))}
           </div>
         </div>
@@ -727,24 +703,26 @@ function CalendarError({
   onRetry: () => void
 }) {
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Calendar</span>
-        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
           Calendar unreachable
         </h1>
       </div>
       <div className="mt-8">
         <div className="bezel-shell">
-          <div className="bezel-core p-6">
-            <div className="flex items-start gap-3">
+          <div className="bezel-core p-5 md:p-6">
+            <div className="flex items-start gap-3 min-w-0">
               <Warning
                 size={22}
                 weight="regular"
                 className="text-amber_lab shrink-0 mt-0.5"
               />
-              <div>
-                <p className="text-[15px] text-ink leading-relaxed">{message}</p>
+              <div className="min-w-0">
+                <p className="text-[15px] text-ink leading-relaxed break-words">
+                  {message}
+                </p>
                 <p className="mt-1 text-[12px] text-ink/50 font-mono">
                   GET /api/tasks/range
                 </p>
@@ -753,7 +731,7 @@ function CalendarError({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
             >
               <ArrowClockwise
                 size={16}

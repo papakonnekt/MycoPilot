@@ -1,18 +1,24 @@
 // =============================================================
 // Myco Lab — Fridge (Phase 3 Step 3)
 //
-// Gen 2 spawn inventory dashboard. Shows current stock vs
-// min/target thresholds, days-remaining on each batch, and a
-// horizontal gauge per species. Two-column desktop layout:
-// gauges left, bag grid right.
+// Mobile-overhaul changes:
+//  - H1 down from text-5xl/6xl to text-4xl/6xl for mobile fit.
+//  - Every bag card and gauge uses min-w-0 on text columns
+//    so long species names and batch_refs can wrap or break
+//    cleanly inside a flex parent.
+//  - The stat tile grid drops to 2 cols on mobile (was 2/4
+//    already, but gap tightened to gap-3).
+//  - The expired list truncates the common_name with a
+//    tooltip-friendly break-words approach (was plain truncate).
+//  - Toast positioned via env(safe-area-inset-bottom) so it
+//    never hides under the system gesture bar.
+//  - All interactive buttons (Expire) carry min-h-[44px] for
+//    touch targets.
 //
 // Data flow:
 //   1. GET /inventory → fridgeSummary (per-species aggregate)
 //   2. GET /inventory/fridge → active batches + expired batches
 //   3. DELETE /inventory/fridge/:id/expire — manual expire action
-//
-// Design system: bezel-shell/core, eyebrow-tag, Instrument Serif H1,
-// framer-motion fade/slide, moss/amber/[#B23A2A] palette per spec.
 // =============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -73,7 +79,6 @@ function statusForDays(days: number | null | undefined): BagStatus {
 
 function parseDate(s: string | null | undefined): Date | null {
   if (!s) return null
-  // Handle "YYYY-MM-DD HH:MM:SS" or "YYYY-MM-DD"
   const datePart = s.split(' ')[0] ?? s
   const [y, m, d] = datePart.split('-').map((n) => parseInt(n, 10))
   if (!y || !m || !d) return null
@@ -228,17 +233,17 @@ function FridgeReady({
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-        className="mx-auto w-full max-w-6xl"
+        className="mx-auto w-full max-w-6xl min-w-0"
       >
         {/* Header */}
-        <div className="pt-2">
-          <div className="flex items-center gap-3">
+        <div className="pt-2 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Fridge</span>
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Step 4 · Cold Storage
             </span>
           </div>
-          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
             Gen 2 buffer.
           </h1>
           <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
@@ -247,8 +252,8 @@ function FridgeReady({
           </p>
         </div>
 
-        {/* Stat row */}
-        <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Stat row — 2 cols on mobile, 4 on md+. */}
+        <div className="mt-6 md:mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatTile
             label="Active bags"
             value={String(totalActive).padStart(2, '0')}
@@ -285,12 +290,12 @@ function FridgeReady({
         </div>
 
         {/* Two-column bento: gauges left, bag grid right */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
-          <section className="md:col-span-5">
+        <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
+          <section className="md:col-span-5 min-w-0">
             <div className="bezel-shell">
-              <div className="bezel-core p-5 md:p-6">
+              <div className="bezel-core p-4 md:p-6">
                 <span className="eyebrow-tag">Stock gauges</span>
-                <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+                <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
                   Species buffer
                 </h2>
                 <p className="text-[13px] text-graphite-500 mt-1 mb-5">
@@ -312,15 +317,15 @@ function FridgeReady({
             </div>
           </section>
 
-          <section className="md:col-span-7">
+          <section className="md:col-span-7 min-w-0">
             <div className="bezel-shell">
-              <div className="bezel-core p-5 md:p-6">
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <div>
+              <div className="bezel-core p-4 md:p-6">
+                <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+                  <div className="min-w-0">
                     <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
                       Active bags
                     </span>
-                    <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+                    <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
                       Bag grid
                     </h2>
                   </div>
@@ -357,10 +362,12 @@ function FridgeReady({
                       {fridge.expired.slice(0, 6).map((b) => (
                         <div
                           key={b.id}
-                          className="rounded-2xl ring-1 ring-[#B23A2A]/20 bg-[#B23A2A]/[0.04] px-3 py-2 text-[12px] text-ink/70 flex items-center justify-between gap-2"
+                          className="rounded-2xl ring-1 ring-[#B23A2A]/20 bg-[#B23A2A]/[0.04] px-3 py-2 text-[12px] text-ink/70 flex items-center justify-between gap-2 min-w-0"
                         >
-                          <span className="truncate">{b.common_name}</span>
-                          <span className="font-mono text-num text-ink/50">
+                          <span className="break-words min-w-0 flex-1">
+                            {b.common_name}
+                          </span>
+                          <span className="font-mono text-num text-ink/50 shrink-0 whitespace-nowrap">
                             {formatDateShort(b.date_expires)}
                           </span>
                         </div>
@@ -373,13 +380,13 @@ function FridgeReady({
           </section>
         </div>
 
-        <div className="mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
           <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
           <span>End of fridge</span>
         </div>
       </motion.div>
 
-      {/* Toast */}
+      {/* Toast — sits above the bottom nav + system gesture bar. */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -387,13 +394,17 @@ function FridgeReady({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-            className="fixed left-1/2 -translate-x-1/2 bottom-28 z-50 px-4"
+            className="fixed left-1/2 -translate-x-1/2 z-50 px-4"
+            style={{
+              bottom:
+                'calc(env(safe-area-inset-bottom, 0px) + 5.5rem + 0.75rem)',
+            }}
             role="status"
           >
             <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink">
-                <Warning size={18} weight="regular" className="text-amber_lab" />
-                <span>{toast}</span>
+              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
+                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
+                <span className="break-words min-w-0">{toast}</span>
               </div>
             </div>
           </motion.div>
@@ -426,16 +437,16 @@ function StatTile({
       : 'text-ink'
   return (
     <div className="bezel-shell">
-      <div className="bezel-core px-4 py-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+      <div className="bezel-core px-3 md:px-4 py-4">
+        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
             {label}
           </span>
-          {icon && <span className="text-ink/30">{icon}</span>}
+          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
         </div>
         <div
           className={
-            'font-serif text-3xl md:text-4xl leading-none text-num ' + valueColor
+            'font-serif text-2xl md:text-4xl leading-none text-num ' + valueColor
           }
         >
           {value}
@@ -455,14 +466,8 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
   const min = num(row, 'min_gen2_bags') ?? 2
   const target = num(row, 'target_gen2_bags') ?? 5
 
-  // Bar fills up to "max( target * 1.2, current )" so we always show
-  // context. Three zones:
-  //   0 .. min   : brick (below minimum)
-  //   min .. target : amber (warming up)
-  //   target .. max : moss (healthy)
   const barMax = Math.max(target * 1.2, current, 1)
 
-  // Build fill segments as percentages of the bar.
   const minPct = Math.min(100, (min / barMax) * 100)
   const targetPct = Math.min(100, (target / barMax) * 100)
   const currentPct = Math.min(100, (current / barMax) * 100)
@@ -470,7 +475,6 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
   const belowMin = current < min
   const fillTone = belowMin ? '#B23A2A' : current < target ? '#B97A1F' : '#1F3D2B'
 
-  // Animate the fill width on mount via framer-motion's animate().
   const mv = useMotionValue(0)
   const widthPct = useTransform(mv, (v) => `${v}%`)
   useEffect(() => {
@@ -486,10 +490,10 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
   }, [currentPct, mv, reduceMotion])
 
   return (
-    <div>
-      <div className="flex items-baseline justify-between mb-1.5">
-        <div className="min-w-0">
-          <div className="font-medium text-ink truncate text-[15px] leading-tight">
+    <div className="min-w-0">
+      <div className="flex items-baseline justify-between mb-1.5 gap-2 min-w-0">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium text-ink text-[15px] leading-tight break-words">
             {row.common_name}
           </div>
           <div className="text-[11px] text-ink/40 font-mono uppercase tracking-eyebrow">
@@ -507,30 +511,25 @@ function Gauge({ row }: { row: FridgeSummaryRow }) {
       </div>
 
       <div className="relative h-2 rounded-full bg-ink/[0.06] overflow-hidden">
-        {/* amber zone from min to target */}
         <div
           aria-hidden
           className="absolute inset-y-0 left-0 bg-amber_lab/15"
           style={{ width: `${targetPct}%` }}
         />
-        {/* brick zone under min */}
         <div
           aria-hidden
           className="absolute inset-y-0 left-0 bg-[#B23A2A]/15"
           style={{ width: `${minPct}%` }}
         />
-        {/* fill */}
         <motion.div
           style={{ width: widthPct, backgroundColor: fillTone }}
           className="relative h-full"
         />
-        {/* min tick */}
         <div
           aria-hidden
           className="absolute inset-y-0 w-px bg-ink/40"
           style={{ left: `${minPct}%` }}
         />
-        {/* target tick */}
         <div
           aria-hidden
           className="absolute inset-y-0 w-px bg-ink/30"
@@ -589,24 +588,24 @@ function BagCard({
     >
       <div
         className={
-          'rounded-2xl ring-1 bg-paper p-4 transition-all duration-450 ease-fluid ' +
+          'rounded-2xl ring-1 bg-paper p-4 transition-all duration-450 ease-fluid min-w-0 ' +
           (status.tone === 'critical'
             ? 'ring-[#B23A2A]/30 hover:ring-[#B23A2A]/50'
             : 'ring-ink/[0.07] hover:ring-ink/[0.15]')
         }
       >
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <div className="min-w-0">
-            <div className="font-medium text-ink truncate text-[15px] leading-tight">
+        <div className="flex items-start justify-between gap-2 mb-2 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-ink text-[15px] leading-tight break-words">
               {row.common_name ?? 'Species'}
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/40 mt-0.5">
+            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/40 mt-0.5 break-all">
               {row.batch_ref ?? `bag #${row.id}`}
             </div>
           </div>
           <span
             className={
-              'shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-eyebrow font-medium ' +
+              'shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-eyebrow font-medium whitespace-nowrap ' +
               toneClass
             }
           >
@@ -614,33 +613,33 @@ function BagCard({
           </span>
         </div>
 
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-baseline justify-between gap-2 min-w-0">
           <div>
-            <div className="font-serif text-3xl leading-none text-num text-ink">
+            <div className="font-serif text-2xl md:text-3xl leading-none text-num text-ink">
               {days != null ? days : '—'}
             </div>
             <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono mt-1">
               days left
             </div>
           </div>
-          <div className="text-right text-[11px] text-graphite-500 leading-tight">
-            <div>
+          <div className="text-right text-[11px] text-graphite-500 leading-tight min-w-0">
+            <>
               <span className="uppercase tracking-eyebrow text-ink/30">
                 Added
               </span>{' '}
-              <span className="font-mono text-num text-ink/60">{addedDate}</span>
-            </div>
+              <span className="font-mono text-num text-ink/60 whitespace-nowrap">{addedDate}</span>
+            </>
             <div className="mt-0.5">
               <span className="uppercase tracking-eyebrow text-ink/30">
                 Expires
               </span>{' '}
-              <span className="font-mono text-num text-ink/60">{expiresDate}</span>
+              <span className="font-mono text-num text-ink/60 whitespace-nowrap">{expiresDate}</span>
             </div>
           </div>
         </div>
 
-        <div className="mt-3 pt-3 border-t border-ink/[0.06] flex items-center justify-between gap-2">
-          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
+        <div className="mt-3 pt-3 border-t border-ink/[0.06] flex items-center justify-between gap-2 min-w-0">
+          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono whitespace-nowrap">
             qty {row.quantity_available}
             {row.reserved_quantity > 0 && (
               <span className="ml-1 text-amber_lab">
@@ -652,7 +651,7 @@ function BagCard({
             type="button"
             onClick={onExpire}
             disabled={busy}
-            className="group inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium ring-1 ring-ink/10 text-ink/60 hover:ring-[#B23A2A]/40 hover:text-[#B23A2A] transition-all duration-450 ease-fluid active:scale-[0.97]"
+            className="group min-h-[44px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[11px] font-medium ring-1 ring-ink/10 text-ink/60 hover:ring-[#B23A2A]/40 hover:text-[#B23A2A] transition-all duration-450 ease-fluid active:scale-[0.97]"
           >
             {busy ? (
               <CircleNotch size={11} weight="regular" className="animate-spin" />
@@ -682,7 +681,7 @@ function EmptyBags() {
       <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
         <Snowflake size={24} weight="regular" />
       </div>
-      <h3 className="font-serif text-2xl text-ink leading-tight">
+      <h3 className="font-serif text-2xl text-ink leading-tight text-balance">
         Fridge is empty.
       </h3>
       <p className="mt-2 text-[13px] text-graphite-500 max-w-sm mx-auto">
@@ -698,36 +697,36 @@ function EmptyBags() {
 
 function FridgeSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag opacity-60">Fridge</span>
-        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse" />
+        <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="bezel-shell">
-            <div className="bezel-core px-4 py-4">
-              <div className="h-2 w-16 rounded-full bg-ink/[0.06] animate-pulse" />
-              <div className="mt-3 h-8 w-12 rounded-full bg-ink/[0.07] animate-pulse" />
+            <div className="bezel-core px-3 md:px-4 py-4">
+              <div className="h-2 w-16 rounded-full skeleton" />
+              <div className="mt-3 h-7 w-12 rounded-full skeleton" />
             </div>
           </div>
         ))}
       </div>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
         <div className="md:col-span-5 bezel-shell">
-          <div className="bezel-core p-5 space-y-5">
-            <div className="h-8 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
-            <div className="h-2 w-full rounded-full bg-ink/[0.05] animate-pulse" />
-            <div className="h-2 w-full rounded-full bg-ink/[0.05] animate-pulse" />
-            <div className="h-2 w-full rounded-full bg-ink/[0.05] animate-pulse" />
+          <div className="bezel-core p-4 md:p-5 space-y-5">
+            <div className="h-7 w-1/2 rounded-full skeleton" />
+            <div className="h-2 w-full rounded-full skeleton" />
+            <div className="h-2 w-full rounded-full skeleton" />
+            <div className="h-2 w-full rounded-full skeleton" />
           </div>
         </div>
         <div className="md:col-span-7 bezel-shell">
-          <div className="bezel-core p-5">
-            <div className="h-8 w-1/3 rounded-full bg-ink/[0.06] animate-pulse mb-4" />
-            <div className="grid grid-cols-2 gap-3">
+          <div className="bezel-core p-4 md:p-5">
+            <div className="h-7 w-1/3 rounded-full skeleton mb-4" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="h-32 rounded-2xl bg-ink/[0.05] animate-pulse" />
+                <div key={i} className="h-32 rounded-2xl skeleton" />
               ))}
             </div>
           </div>
@@ -745,24 +744,26 @@ function FridgeError({
   onRetry: () => void
 }) {
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Fridge</span>
-        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
           Fridge unreachable
         </h1>
       </div>
       <div className="mt-8">
         <div className="bezel-shell">
-          <div className="bezel-core p-6">
-            <div className="flex items-start gap-3">
+          <div className="bezel-core p-5 md:p-6">
+            <div className="flex items-start gap-3 min-w-0">
               <Warning
                 size={22}
                 weight="regular"
                 className="text-amber_lab shrink-0 mt-0.5"
               />
-              <div>
-                <p className="text-[15px] text-ink leading-relaxed">{message}</p>
+              <div className="min-w-0">
+                <p className="text-[15px] text-ink leading-relaxed break-words">
+                  {message}
+                </p>
                 <p className="mt-1 text-[12px] text-ink/50 font-mono">
                   GET /api/inventory · GET /api/inventory/fridge
                 </p>
@@ -771,7 +772,7 @@ function FridgeError({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
             >
               <ArrowClockwise
                 size={16}

@@ -6,6 +6,19 @@
 // paper #F5F4F0 / moss #1F3D2B / ink #0A0A0A, Geist + Instrument
 // Serif, Double-Bezel component pattern, fluid cubic-bezier.
 //
+// Mobile-overhaul changes (this pass):
+//  - H1 down from text-5xl/6xl to text-4xl/6xl so it never
+//    collides with the sticky top bar on a 360dp screen.
+//  - The text column in every TaskCard has min-w-0; long titles
+//    wrap with break-words instead of being truncated.
+//  - The H1 uses text-balance so two-word dates don't create
+//    awkward orphan lines.
+//  - The sticky FloatingTopBar lifts off the top safe-area
+//    inset (top-[calc(env(safe-area-inset-top)+0.5rem)]) so the
+//    status pill clears the camera notch on Android.
+//  - Bottom padding on the column is governed by Layout (it
+//    accounts for the bottom nav + safe area).
+//
 // Data flow:
 //   1. On mount, GET /api/tasks/today → DailyViewPayload.
 //   2. Group by task_type (literal string from the DB).
@@ -18,14 +31,8 @@
 // MOVE_TO_FRIDGE, START_FRUITING).
 //
 // Design decisions:
-//   • Contam interaction: persistent secondary text-button (option B).
-//     A swipe gesture is wrong for one-handed gloved operation; an
-//     accidentally-revealed contam button under the same thumb that
-//     just tapped Complete is a contamination hazard. A persistent,
-//     low-contrast underline that requires deliberate confirmation
-//     is safer.
-//   • Pull-to-refresh: skipped — would compete with the bottom tab
-//     and the floating top bar's sticky hit area.
+//   - Contam interaction: persistent secondary text-button (option B).
+//   - Pull-to-refresh: skipped.
 // =============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -108,7 +115,6 @@ function humanizeTaskType(taskType: string): string {
     OVER_BUDGET_FLAG: 'Over Budget',
   }
   if (map[taskType]) return map[taskType]
-  // Fallback: title-case the words.
   return taskType
     .toLowerCase()
     .split('_')
@@ -122,13 +128,10 @@ function isContamEligible(task: TaskRow): boolean {
 }
 
 function isOpen(task: TaskRow): boolean {
-  // Anything not already COMPLETE or SKIPPED counts as "open"
-  // for the count badge.
   return task.status !== 'COMPLETE' && task.status !== 'SKIPPED'
 }
 
 function formatDateLong(d: Date): string {
-  // e.g. "Friday · June 20"
   const weekday = d.toLocaleDateString('en-US', { weekday: 'long' })
   const month = d.toLocaleDateString('en-US', { month: 'long' })
   const day = d.getDate()
@@ -143,8 +146,6 @@ function formatMinutesShort(mins: number | undefined | null): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`
 }
 
-// Stable order: PENDING first, then OVER_BUDGET_WARNING, etc.
-// Matches the server's ORDER BY clause.
 const STATUS_PRIORITY: Record<string, number> = {
   OVER_BUDGET_WARNING: 0,
   PENDING: 1,
@@ -179,7 +180,6 @@ function groupTasks(tasks: TaskRow[]): TaskGroup[] {
       tasks: sortTasks(list),
     })
   }
-  // Group order: by the first task's status priority, then alphabetically.
   groups.sort((a, b) => {
     const pa = STATUS_PRIORITY[a.tasks[0]?.status] ?? 99
     const pb = STATUS_PRIORITY[b.tasks[0]?.status] ?? 99
@@ -193,13 +193,9 @@ function groupTasks(tasks: TaskRow[]): TaskGroup[] {
 // ROOT COMPONENT
 // ─────────────────────────────────────────────────────────────
 
-// Track whether a fetch is already in flight so a re-mount (e.g.
-// route change back to /) doesn't fire two parallel requests.
 let loadInFlight: Promise<void> | null = null
 
 export default function DailyView() {
-  // Start in `loading` immediately — no idle flicker. The actual
-  // fetch is kicked off via useEffect below.
   const [state, setState] = useState<FetchState>({ kind: 'loading' })
 
   const load = useCallback(async (): Promise<void> => {
@@ -225,9 +221,6 @@ export default function DailyView() {
     return loadInFlight
   }, [])
 
-  // Initial fetch on mount. Data fetching from an external system
-  // is exactly what useEffect is for — we capture `load` in a ref
-  // so the effect itself is stable (no re-runs on every render).
   const loadRef = useRef(load)
   useEffect(() => {
     loadRef.current = load
@@ -243,8 +236,6 @@ export default function DailyView() {
     return <DailyViewError message={state.message} onRetry={load} />
   }
 
-  // Key on payload identity so a refetch re-mounts the ready view
-  // with fresh local state (no useEffect to sync tasks).
   return (
     <DailyViewReady
       key={state.payload.date + ':' + state.payload.tasks.length}
@@ -266,17 +257,9 @@ function DailyViewReady({
   onReload: () => void
 }) {
   const reduceMotion = useReducedMotion()
-
-  // Local task list so we can do optimistic removals.
   const [tasks, setTasks] = useState<TaskRow[]>(payload.tasks)
-  // Toast for inline errors after a failed mutation.
   const [toast, setToast] = useState<string | null>(null)
-
-  // Confirm sheet for contam/toss.
   const [contamTarget, setContamTarget] = useState<TaskRow | null>(null)
-
-  // No effect to sync payload → tasks: the parent uses `key` so
-  // this component re-mounts with a fresh tasks state on refetch.
 
   const groups = useMemo(() => groupTasks(tasks), [tasks])
   const openCount = useMemo(() => tasks.filter(isOpen).length, [tasks])
@@ -288,7 +271,6 @@ function DailyViewReady({
     [tasks],
   )
 
-  // ── Mark complete (optimistic) ───────────────────────────
   const handleComplete = useCallback(
     async (task: TaskRow) => {
       const snapshot = tasks
@@ -296,7 +278,7 @@ function DailyViewReady({
       try {
         await completeTask(task.id)
       } catch (err) {
-        setTasks(snapshot) // restore
+        setTasks(snapshot)
         const message =
           err instanceof ApiError
             ? err.message
@@ -310,26 +292,18 @@ function DailyViewReady({
     [tasks],
   )
 
-  // ── Contam confirm ───────────────────────────────────────
   const handleConfirmContam = useCallback(async () => {
     const target = contamTarget
     if (!target) return
     if (target.batch_id == null) {
-      // No batch → can't mark spent. Just close.
       setContamTarget(null)
       return
     }
     const snapshot = tasks
-    // Remove ALL tasks for this batch from the local view (the
-    // server's mark-spent cascades to all pending HARVEST tasks
-    // for this batch). For our local state we just hide the one
-    // task the user tapped — we don't know the cascade graph
-    // client-side.
     setTasks((prev) => prev.filter((t) => t.id !== target.id))
     setContamTarget(null)
     try {
       await markBatchSpent(target.batch_id)
-      // Refresh from server so the cascade is reflected.
       onReload()
     } catch (err) {
       setTasks(snapshot)
@@ -346,26 +320,27 @@ function DailyViewReady({
 
   return (
     <div className="relative">
-      {/* Floating sticky top bar */}
+      {/* Floating sticky top bar — sits above the scroll content and
+          clears the top safe-area inset on mobile. */}
       <FloatingTopBar openCount={openCount} totalMins={totalOpenMins} />
 
-      {/* Main column — same width on mobile and desktop, max-w-2xl */}
+      {/* Main column — min-w-0 lets nested flex rows shrink properly. */}
       <motion.div
         key={payload.date}
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-        className="mx-auto w-full max-w-2xl px-1 pt-2 pb-6"
+        className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6"
       >
         {/* Header */}
-        <div className="px-3 pt-2">
-          <div className="flex items-center gap-3">
+        <div className="px-3 pt-2 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Today</span>
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Step 2 · Daily Bench
             </span>
           </div>
-          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
             {formatDateLong(parseTaskDate(payload.date))}
           </h1>
           <p className="mt-3 max-w-md text-[15px] leading-relaxed text-graphite-500">
@@ -377,9 +352,6 @@ function DailyViewReady({
         {/* Budget strip */}
         <BudgetStrip
           totalMins={totalOpenMins}
-          // The server returns camelCase for DailyView fields
-          // (dailyBudgetMins / isOverBudget / warningCount); the
-          // shared type file uses snake_case but we don't edit it.
           budgetMins={
             (payload as unknown as { dailyBudgetMins?: number }).dailyBudgetMins ?? 480
           }
@@ -395,7 +367,7 @@ function DailyViewReady({
         {groups.length === 0 ? (
           <EmptyState />
         ) : (
-          <div className="mt-8 space-y-9">
+          <div className="mt-6 md:mt-8 space-y-6 md:space-y-9">
             {groups.map((group, gi) => (
               <TaskGroupSection
                 key={group.taskType}
@@ -409,13 +381,13 @@ function DailyViewReady({
         )}
 
         {/* Footnote */}
-        <div className="mt-12 px-3 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+        <div className="mt-10 md:mt-12 px-3 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
           <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
           <span>End of bench</span>
         </div>
       </motion.div>
 
-      {/* Confirm sheet */}
+      {/* Confirm sheet — safe-area aware via inline style. */}
       <AnimatePresence>
         {contamTarget && (
           <ContamConfirmSheet
@@ -434,13 +406,19 @@ function DailyViewReady({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-            className="fixed left-1/2 -translate-x-1/2 bottom-28 z-50 px-4"
+            className="fixed left-1/2 -translate-x-1/2 z-50 px-4"
+            style={{
+              // Sit just above the floating bottom nav (which is mb-3
+              // = 12px + 64px h-16 + safe-area-inset-bottom).
+              bottom:
+                'calc(env(safe-area-inset-bottom, 0px) + 5.5rem + 0.75rem)',
+            }}
             role="status"
           >
             <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink">
-                <Warning size={18} weight="regular" className="text-amber_lab" />
-                <span>{toast}</span>
+              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
+                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
+                <span className="break-words min-w-0">{toast}</span>
               </div>
             </div>
           </motion.div>
@@ -462,21 +440,24 @@ function FloatingTopBar({
   totalMins: number
 }) {
   return (
-    <div className="sticky top-4 z-30 mx-4 md:mx-auto md:max-w-2xl">
+    <div
+      className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl"
+      style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
+    >
       <div className="bezel-shell">
-        <div className="bezel-core flex h-14 items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
-            <span className="font-serif text-[17px] leading-none text-ink">
+        <div className="bezel-core flex h-14 items-center justify-between gap-3 px-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="h-1.5 w-1.5 rounded-full bg-moss-700 shrink-0" />
+            <span className="font-serif text-[17px] leading-none text-ink truncate">
               Today
             </span>
           </div>
-          <div className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-eyebrow text-ink/60">
-            <span className="text-num">
+          <div className="flex items-center gap-2 sm:gap-3 font-mono text-[11px] uppercase tracking-eyebrow text-ink/60 shrink-0">
+            <span className="text-num whitespace-nowrap">
               {String(openCount).padStart(2, '0')} OPEN
             </span>
             <span className="h-3 w-px bg-ink/15" />
-            <span className="text-num text-ink/40">
+            <span className="text-num text-ink/40 whitespace-nowrap">
               {formatMinutesShort(totalMins)}
             </span>
           </div>
@@ -487,7 +468,7 @@ function FloatingTopBar({
 }
 
 // ─────────────────────────────────────────────────────────────
-// BUDGET STRIP — soft budget banner per the spec
+// BUDGET STRIP
 // ─────────────────────────────────────────────────────────────
 
 function BudgetStrip({
@@ -504,16 +485,16 @@ function BudgetStrip({
   const pct = budgetMins > 0 ? Math.min(100, Math.round((totalMins / budgetMins) * 100)) : 0
 
   return (
-    <div className="mt-6 px-3">
+    <div className="mt-5 md:mt-6 px-3">
       <div className="bezel-shell">
-        <div className="bezel-core px-5 py-4">
-          <div className="flex items-center justify-between">
+        <div className="bezel-core px-4 md:px-5 py-4">
+          <div className="flex items-center justify-between gap-2 min-w-0">
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Time budget
             </span>
             <span
               className={
-                'font-mono text-[11px] uppercase tracking-eyebrow ' +
+                'font-mono text-[11px] uppercase tracking-eyebrow whitespace-nowrap ' +
                 (isOverBudget ? 'text-amber_lab' : 'text-ink/50')
               }
             >
@@ -530,9 +511,9 @@ function BudgetStrip({
             />
           </div>
           {warningCount > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-[12px] text-amber_lab">
-              <Warning size={14} weight="regular" />
-              <span>
+            <div className="mt-3 flex items-center gap-2 text-[12px] text-amber_lab min-w-0">
+              <Warning size={14} weight="regular" className="shrink-0" />
+              <span className="break-words">
                 {warningCount} warning{warningCount === 1 ? '' : 's'} on the bench
               </span>
             </div>
@@ -559,12 +540,12 @@ function TaskGroupSection({
   onRequestContam: (task: TaskRow) => void
 }) {
   return (
-    <section>
-      <div className="px-3 mb-3 flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+    <section className="min-w-0">
+      <div className="px-3 mb-3 flex items-center justify-between min-w-0">
+        <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
           {group.label}
         </span>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num shrink-0">
           {String(group.tasks.length).padStart(2, '0')}
         </span>
       </div>
@@ -574,7 +555,6 @@ function TaskGroupSection({
             <TaskCard
               key={task.id}
               task={task}
-              // Stagger entry: first ~6 only, capped per spec.
               entryDelayMs={Math.min(index * 80 + ti * 50, 450)}
               onComplete={onComplete}
               onRequestContam={onRequestContam}
@@ -587,7 +567,7 @@ function TaskGroupSection({
 }
 
 // ─────────────────────────────────────────────────────────────
-// TASK CARD (Double-Bezel, with massive Complete + contam row)
+// TASK CARD
 // ─────────────────────────────────────────────────────────────
 
 function TaskCard({
@@ -603,12 +583,6 @@ function TaskCard({
 }) {
   const reduceMotion = useReducedMotion()
 
-  // Subtle swipe-left on contam-eligible cards. The visible card
-  // follows the finger and snaps back; no destructive action is
-  // tied to the gesture itself — the contam button row inside the
-  // card is the actual trigger. This is option B (persistent
-  // secondary button), with a tactile optional swipe-to-peek for
-  // discovery.
   const [peekX, setPeekX] = useState(0)
   const showContam = isContamEligible(task)
   const peekThreshold = 56
@@ -650,7 +624,6 @@ function TaskCard({
       whileTap={{ cursor: 'grabbing' }}
       className="relative"
     >
-      {/* Underlay contam chip revealed by the swipe peek */}
       {showContam && (
         <div
           aria-hidden
@@ -663,11 +636,11 @@ function TaskCard({
       )}
 
       <div className="bezel-shell">
-        <div className="bezel-core p-5 min-h-[88px]">
-          <div className="flex items-start gap-4">
-            {/* Text column */}
+        <div className="bezel-core p-4 md:p-5 min-h-[88px]">
+          <div className="flex items-start gap-3 md:gap-4 min-w-0">
+            {/* Text column — min-w-0 lets the title wrap. */}
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1.5">
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap min-w-0">
                 <StatusDot status={task.status} />
                 <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
                   {humanizeTaskStatus(task.status)}
@@ -678,50 +651,50 @@ function TaskCard({
                   </span>
                 ) : null}
               </div>
-              <h3 className="text-2xl font-medium text-ink leading-tight">
+              <h3 className="text-[17px] md:text-2xl font-medium text-ink leading-snug break-words">
                 {task.title}
               </h3>
-              <div className="mt-1.5 flex items-center gap-2 text-sm text-ink/50 flex-wrap">
-                {task.species_name && <span>{task.species_name}</span>}
+              <div className="mt-1.5 flex items-center gap-2 text-sm text-ink/50 flex-wrap min-w-0">
+                {task.species_name && <span className="break-words">{task.species_name}</span>}
                 {task.species_name && task.batch_ref && (
-                  <span className="h-1 w-1 rounded-full bg-ink/20" />
+                  <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
                 )}
                 {task.batch_ref && (
-                  <span className="font-mono uppercase tracking-wide_lab text-[12px]">
+                  <span className="font-mono uppercase tracking-wide_lab text-[12px] break-all">
                     {task.batch_ref}
                   </span>
                 )}
                 {(task.species_name || task.batch_ref) && task.estimated_mins ? (
-                  <span className="h-1 w-1 rounded-full bg-ink/20" />
+                  <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
                 ) : null}
                 {task.estimated_mins ? (
-                  <span className="text-num">
+                  <span className="text-num whitespace-nowrap">
                     {formatMinutesShort(task.estimated_mins)}
                   </span>
                 ) : null}
                 {task.flush_number ? (
                   <>
-                    <span className="h-1 w-1 rounded-full bg-ink/20" />
-                    <span className="text-num">Flush {task.flush_number}</span>
+                    <span className="h-1 w-1 rounded-full bg-ink/20 shrink-0" />
+                    <span className="text-num whitespace-nowrap">Flush {task.flush_number}</span>
                   </>
                 ) : null}
               </div>
             </div>
 
-            {/* Massive Complete button */}
+            {/* Massive Complete button — 64×64 mobile, 56×56 desktop. */}
             <CompleteButton
               task={task}
               onClick={() => onComplete(task)}
             />
           </div>
 
-          {/* Secondary contam action */}
+          {/* Secondary contam action — min-h for touch target. */}
           {showContam && (
-            <div className="mt-4 pt-4 border-t border-ink/[0.06]">
+            <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t border-ink/[0.06]">
               <button
                 type="button"
                 onClick={() => onRequestContam(task)}
-                className="group inline-flex items-center gap-1.5 text-sm font-medium text-ink/60 underline decoration-ink/20 underline-offset-4 hover:text-[#B23A2A] hover:decoration-[#B23A2A] transition-colors duration-450 ease-fluid"
+                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium text-ink/60 underline decoration-ink/20 underline-offset-4 hover:text-[#B23A2A] hover:decoration-[#B23A2A] transition-colors duration-450 ease-fluid"
               >
                 <Trash size={14} weight="regular" />
                 <span>Mark batch as spent (contam)</span>
@@ -735,8 +708,7 @@ function TaskCard({
 }
 
 // ─────────────────────────────────────────────────────────────
-// COMPLETE BUTTON — circular 64×64 mobile, 56×56 desktop
-// Button-in-Button hover physics per the design skill.
+// COMPLETE BUTTON
 // ─────────────────────────────────────────────────────────────
 
 function CompleteButton({
@@ -751,8 +723,6 @@ function CompleteButton({
   const handleClick = async () => {
     if (completed) return
     setCompleted(true)
-    // Brief delay so the green pulse is visible before the parent
-    // optimistically removes the card.
     window.setTimeout(() => {
       onClick()
     }, 180)
@@ -764,7 +734,7 @@ function CompleteButton({
       onClick={handleClick}
       aria-label={`Mark complete: ${task.title}`}
       className={
-        'group relative shrink-0 w-16 h-16 md:w-14 md:h-14 rounded-full ' +
+        'group relative shrink-0 w-14 h-14 md:w-14 md:h-14 rounded-full ' +
         'ring-1 ring-ink/15 active:scale-[0.94] ' +
         'transition-all duration-500 ease-fluid ' +
         (completed
@@ -780,7 +750,7 @@ function CompleteButton({
         }
       >
         <Check
-          size={26}
+          size={24}
           weight="light"
           className={
             'transition-colors duration-500 ease-fluid ' +
@@ -793,8 +763,7 @@ function CompleteButton({
 }
 
 // ─────────────────────────────────────────────────────────────
-// CONTAM CONFIRM SHEET — slides up from bottom on mobile,
-// centered on desktop. Calls markBatchSpent() on confirm.
+// CONTAM CONFIRM SHEET
 // ─────────────────────────────────────────────────────────────
 
 function ContamConfirmSheet({
@@ -815,7 +784,6 @@ function ContamConfirmSheet({
       aria-modal="true"
       aria-labelledby="contam-title"
     >
-      {/* Scrim */}
       <motion.button
         type="button"
         aria-label="Cancel"
@@ -827,7 +795,6 @@ function ContamConfirmSheet({
         className="absolute inset-0 bg-ink/30 backdrop-blur-md"
       />
 
-      {/* Sheet */}
       <motion.div
         initial={
           reduceMotion
@@ -841,18 +808,21 @@ function ContamConfirmSheet({
             : { opacity: 0, y: 24, scale: 0.98 }
         }
         transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
-        className="relative w-full md:max-w-md mx-4 mb-4 md:mb-0"
+        className="relative w-full md:max-w-md mx-3 md:mx-4"
+        style={{
+          marginBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)',
+        }}
       >
         <div className="bezel-shell">
           <div className="bezel-core p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
+            <div className="flex items-start justify-between gap-3 min-w-0">
+              <div className="min-w-0 flex-1">
                 <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
                   Contam · Spent
                 </span>
                 <h2
                   id="contam-title"
-                  className="mt-3 font-serif text-3xl leading-[0.95] tracking-tight text-ink"
+                  className="mt-3 font-serif text-2xl md:text-3xl leading-[0.95] tracking-tight text-ink break-words text-balance"
                 >
                   Mark this batch as spent?
                 </h2>
@@ -866,7 +836,7 @@ function ContamConfirmSheet({
                 type="button"
                 onClick={onCancel}
                 aria-label="Close"
-                className="shrink-0 -mt-1 -mr-1 h-9 w-9 rounded-full ring-1 ring-ink/10 bg-paper text-ink/60 hover:text-ink hover:ring-ink/20 transition-all duration-450 ease-fluid flex items-center justify-center"
+                className="shrink-0 -mt-1 -mr-1 min-h-[44px] min-w-[44px] h-10 w-10 rounded-full ring-1 ring-ink/10 bg-paper text-ink/60 hover:text-ink hover:ring-ink/20 transition-all duration-450 ease-fluid flex items-center justify-center"
               >
                 <X size={16} weight="regular" />
               </button>
@@ -876,16 +846,16 @@ function ContamConfirmSheet({
               <div className="text-[10px] uppercase tracking-eyebrow text-ink/40">
                 Task
               </div>
-              <div className="mt-1 text-[15px] text-ink font-medium leading-snug">
+              <div className="mt-1 text-[15px] text-ink font-medium leading-snug break-words">
                 {task.title}
               </div>
               {task.species_name && (
-                <div className="mt-1 text-[12px] text-ink/50">
+                <div className="mt-1 text-[12px] text-ink/50 break-words">
                   {task.species_name}
                   {task.batch_ref && (
                     <>
                       {' · '}
-                      <span className="font-mono uppercase tracking-wide_lab">
+                      <span className="font-mono uppercase tracking-wide_lab break-all">
                         {task.batch_ref}
                       </span>
                     </>
@@ -898,14 +868,14 @@ function ContamConfirmSheet({
               <button
                 type="button"
                 onClick={onCancel}
-                className="px-5 py-3 rounded-full text-sm font-medium text-ink/70 ring-1 ring-ink/10 hover:ring-ink/20 hover:text-ink transition-all duration-450 ease-fluid"
+                className="min-h-[44px] px-5 py-3 rounded-full text-sm font-medium text-ink/70 ring-1 ring-ink/10 hover:ring-ink/20 hover:text-ink transition-all duration-450 ease-fluid"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={onConfirm}
-                className="group inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#B23A2A] text-paper text-sm font-medium hover:bg-[#8F2E22] active:scale-[0.98] transition-all duration-450 ease-fluid"
+                className="group min-h-[44px] inline-flex items-center justify-center gap-2 px-5 py-3 rounded-full bg-[#B23A2A] text-paper text-sm font-medium hover:bg-[#8F2E22] active:scale-[0.98] transition-all duration-450 ease-fluid"
               >
                 <Trash
                   size={16}
@@ -923,42 +893,45 @@ function ContamConfirmSheet({
 }
 
 // ─────────────────────────────────────────────────────────────
-// SKELETON — loading state (3-4 cards, GPU-safe pulse)
+// SKELETON
 // ─────────────────────────────────────────────────────────────
 
 function DailyViewSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-2xl px-1 pt-2 pb-6">
+    <div className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6">
       {/* Top bar skeleton */}
-      <div className="sticky top-4 z-30 mx-4 md:mx-auto md:max-w-2xl mb-4">
+      <div
+        className="sticky z-30 mx-3 md:mx-auto md:max-w-2xl mb-4"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 0.5rem)' }}
+      >
         <div className="bezel-shell">
           <div className="bezel-core flex h-14 items-center justify-between px-4">
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full bg-ink/10" />
-              <span className="h-3 w-14 rounded-full bg-ink/[0.06] animate-pulse-skel" />
+              <span className="h-3 w-14 skeleton" />
             </div>
-            <div className="h-3 w-16 rounded-full bg-ink/[0.06] animate-pulse-skel" />
+            <div className="h-3 w-16 skeleton" />
           </div>
         </div>
       </div>
 
       <div className="px-3">
         <span className="eyebrow-tag opacity-60">Today</span>
-        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse-skel" />
-        <div className="mt-3 h-3 w-1/2 rounded-full bg-ink/[0.05] animate-pulse-skel" />
+        <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
+        <div className="mt-3 h-3 w-1/2 rounded-full skeleton" />
       </div>
 
       <div className="mt-6 px-3">
         <div className="bezel-shell">
           <div className="bezel-core px-5 py-4">
-            <div className="h-2 w-24 rounded-full bg-ink/[0.06] animate-pulse-skel" />
-            <div className="mt-3 h-1 w-full rounded-full bg-ink/[0.04] animate-pulse-skel" />
+            <div className="h-2 w-24 rounded-full skeleton" />
+            <div className="mt-3 h-1 w-full rounded-full skeleton" />
           </div>
         </div>
       </div>
 
       <div className="mt-8 px-3 space-y-3">
-        <div className="h-2 w-20 rounded-full bg-ink/[0.06] animate-pulse-skel" />
+        <div className="h-2 w-20 rounded-full skeleton" />
         <SkeletonCard />
         <SkeletonCard />
         <SkeletonCard />
@@ -971,14 +944,14 @@ function DailyViewSkeleton() {
 function SkeletonCard() {
   return (
     <div className="bezel-shell">
-      <div className="bezel-core p-5 min-h-[88px]">
-        <div className="flex items-center gap-4">
-          <div className="flex-1 space-y-3">
-            <div className="h-2 w-16 rounded-full bg-ink/[0.06] animate-pulse-skel" />
-            <div className="h-5 w-3/4 rounded-full bg-ink/[0.07] animate-pulse-skel" />
-            <div className="h-3 w-1/2 rounded-full bg-ink/[0.05] animate-pulse-skel" />
+      <div className="bezel-core p-4 md:p-5 min-h-[88px]">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="flex-1 min-w-0 space-y-3">
+            <div className="h-2 w-16 rounded-full skeleton" />
+            <div className="h-4 w-3/4 rounded-full skeleton" />
+            <div className="h-3 w-1/2 rounded-full skeleton" />
           </div>
-          <div className="w-16 h-16 md:w-14 md:h-14 rounded-full bg-ink/[0.05] ring-1 ring-ink/10 animate-pulse-skel" />
+          <div className="w-14 h-14 rounded-full skeleton shrink-0" />
         </div>
       </div>
     </div>
@@ -997,24 +970,24 @@ function DailyViewError({
   onRetry: () => void
 }) {
   return (
-    <div className="mx-auto w-full max-w-2xl px-1 pt-2 pb-6">
+    <div className="mx-auto w-full max-w-2xl min-w-0 px-1 pt-2 pb-6">
       <div className="px-3 pt-2">
         <span className="eyebrow-tag">Today</span>
-        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
           Bench unreachable
         </h1>
       </div>
       <div className="mt-8 px-3">
         <div className="bezel-shell">
           <div className="bezel-core p-6">
-            <div className="flex items-start gap-3">
+            <div className="flex items-start gap-3 min-w-0">
               <Warning
                 size={22}
                 weight="regular"
                 className="text-amber_lab shrink-0 mt-0.5"
               />
-              <div>
-                <p className="text-[15px] text-ink leading-relaxed">
+              <div className="min-w-0">
+                <p className="text-[15px] text-ink leading-relaxed break-words">
                   {message}
                 </p>
                 <p className="mt-1 text-[12px] text-ink/50 font-mono">
@@ -1025,7 +998,7 @@ function DailyViewError({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
             >
               <ArrowClockwise
                 size={16}
@@ -1051,14 +1024,14 @@ function EmptyState() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
-      className="mt-12 px-3"
+      className="mt-10 md:mt-12 px-3"
     >
       <div className="bezel-shell">
         <div className="bezel-core px-6 py-12 text-center">
           <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-moss-700/10 text-moss-700">
             <CircleWavyCheck size={24} weight="regular" />
           </div>
-          <h2 className="font-serif text-4xl md:text-5xl leading-[0.95] tracking-tight text-ink">
+          <h2 className="font-serif text-3xl md:text-5xl leading-[0.95] tracking-tight text-ink text-balance">
             Bench is clear.
           </h2>
           <p className="mt-3 text-[14px] text-graphite-500">
@@ -1075,7 +1048,6 @@ function EmptyState() {
 // ─────────────────────────────────────────────────────────────
 
 function parseTaskDate(s: string): Date {
-  // Server returns YYYY-MM-DD; build a local date to avoid TZ drift.
   const [y, m, d] = s.split('-').map((n) => parseInt(n, 10))
   return new Date(y, (m ?? 1) - 1, d ?? 1)
 }
@@ -1106,5 +1078,5 @@ function StatusDot({ status }: { status: string }) {
   if (status === 'FLAGGED') color = 'bg-amber_lab'
   if (status === 'COMPLETE') color = 'bg-moss-700'
   if (status === 'SKIPPED') color = 'bg-ink/15'
-  return <span className={`h-1.5 w-1.5 rounded-full ${color}`} />
+  return <span className={`h-1.5 w-1.5 rounded-full ${color} shrink-0`} />
 }

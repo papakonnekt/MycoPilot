@@ -61,6 +61,18 @@ export default {
         eyebrow: '0.2em',
         wide_lab: '0.08em',
       },
+      // Custom spacing token used by the mobile main column so
+      // content never hides under the floating bottom tab bar.
+      // Mobile-only; desktop resets via md: variants.
+      spacing: {
+        'safe-top': 'env(safe-area-inset-top, 0px)',
+        'safe-bottom': 'env(safe-area-inset-bottom, 0px)',
+        'safe-left': 'env(safe-area-inset-left, 0px)',
+        'safe-right': 'env(safe-area-inset-right, 0px)',
+        'nav-h': '5.5rem', /* 88px — bottom nav + breathing room */
+        'nav-h-safe': 'calc(5.5rem + env(safe-area-inset-bottom, 0px))',
+        'header-h': '4rem', /* 64px — sticky mobile header */
+      },
       keyframes: {
         rise_in: {
           '0%':   { opacity: '0', transform: 'translateY(12px)' },
@@ -82,5 +94,9 @@ export default {
       },
     },
   },
+  // The mobile bottom bar height is ~88px (16px top padding + 64px
+  // content + 8px bottom). The standard pb-28 (7rem = 112px) already
+  // clears it, but a slightly larger pb-nav-h-safe (above) covers
+  // Android devices with deep gesture bars.
   plugins: [],
 }

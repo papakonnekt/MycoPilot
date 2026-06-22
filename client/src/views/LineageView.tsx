@@ -1,11 +1,16 @@
 // =============================================================
 // Myco Lab — Lineage (Phase 3 Step 4)
 //
-// Genetic-tracking dashboard. Per species, lists lineages with
-// 90-day avg BE, senescence flag, and a 4-generation column
-// grid (Gen 0 Spore → Gen 1 → Gen 2 → Gen 3 Bulk) showing where
-// each lineage lives today. Senescence Risk panel flags
-// lineages below the species' acceptable BE threshold.
+// Mobile-overhaul changes:
+//  - H1 down to text-4xl/6xl.
+//  - Stat row drops to 2 cols on mobile, 4 on md+.
+//  - LineageChip and MobileLineageCard give long codes / BE
+//    percentages a real wrap path (break-all, break-words) and
+//    ensure parent flex rows have min-w-0.
+//  - Long species name in the Senescence panel uses break-words
+//    so it can wrap below the percent value on narrow screens
+//    (was `truncate`).
+//  - Touch targets (where present) get min-h-[44px].
 //
 // Data flow:
 //   1. GET /species → SpeciesRow[] (with target_biological_efficiency)
@@ -13,9 +18,6 @@
 //   3. (Derived) per-generation location: tracked by joining lineage → batch
 //      stage. We use batch.stage from GET /batches to determine which
 //      generation column each lineage currently occupies.
-//
-// Design system: bezel-shell/core, eyebrow-tag, Instrument Serif,
-// framer-motion, moss/amber/brick palette per spec.
 // =============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -77,11 +79,6 @@ function originLabel(origin: string): string {
   return map[origin] ?? origin
 }
 
-// Map batch.stage to one of our four generation columns. The DB
-// column constraints say stage ∈ ('GEN1_GRAIN','GEN2_GRAIN',
-// 'BULK_BLOCK','FRUITING','FRIDGE'). We treat FRUITING as
-// Gen 3 (Bulk Block fruiting) and FRIDGE as parked storage —
-// sink those into Gen 3 or skip per the design.
 function stageToGen(stage: string | undefined | null): number | null {
   const s = (stage ?? '').toUpperCase()
   if (s === 'GEN1_GRAIN') return 1
@@ -105,7 +102,6 @@ export default function LineageView() {
     const work = (async () => {
       try {
         const species = await getSpecies()
-        // Fan-out one lineage call per active species.
         const pairs = await Promise.all(
           species.map(async (s) => {
             try {
@@ -188,7 +184,6 @@ function LineageReady({
 }) {
   const reduceMotion = useReducedMotion()
 
-  // Index batches by lineage_id for fast lookup.
   const batchesByLineage = useMemo(() => {
     const map = new Map<number, BatchRow[]>()
     for (const b of batches) {
@@ -234,17 +229,17 @@ function LineageReady({
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-        className="mx-auto w-full max-w-6xl"
+        className="mx-auto w-full max-w-6xl min-w-0"
       >
         {/* Header */}
-        <div className="pt-2">
-          <div className="flex items-center gap-3">
+        <div className="pt-2 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Lineage</span>
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Step 4 · Genetic Tracking
             </span>
           </div>
-          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
             Family trees.
           </h1>
           <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
@@ -255,7 +250,7 @@ function LineageReady({
         </div>
 
         {/* Stat row */}
-        <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="mt-6 md:mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
           <StatTile
             label="Lineages tracked"
             value={String(totalLineages).padStart(2, '0')}
@@ -277,12 +272,12 @@ function LineageReady({
         </div>
 
         {/* Senescence Risk panel */}
-        <div className="mt-8">
+        <div className="mt-6 md:mt-8 min-w-0">
           <SenescenceRiskPanel views={views} batchesByLineage={batchesByLineage} />
         </div>
 
         {/* Per-species lineage views */}
-        <div className="mt-8 space-y-6">
+        <div className="mt-6 md:mt-8 space-y-4 md:space-y-6 min-w-0">
           {views.length === 0 ? (
             <div className="bezel-shell">
               <div className="bezel-core p-6 text-center text-[14px] text-graphite-500">
@@ -301,7 +296,7 @@ function LineageReady({
           )}
         </div>
 
-        <div className="mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
           <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
           <span>End of lineage registry</span>
         </div>
@@ -345,16 +340,16 @@ function SenescenceRiskPanel({
     <div className="bezel-shell">
       <div
         className={
-          'bezel-core p-5 md:p-6 ' +
+          'bezel-core p-4 md:p-6 ' +
           (flagged.length > 0 ? 'ring-2 ring-[#B23A2A]/20' : '')
         }
       >
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <div>
+        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="eyebrow-tag !bg-[#B23A2A]/10 !text-[#B23A2A]">
               Senescence risk
             </span>
-            <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
               {flagged.length === 0
                 ? 'No flag — all lineages healthy.'
                 : `${flagged.length} lineage${flagged.length === 1 ? '' : 's'} below threshold`}
@@ -418,18 +413,18 @@ function FlaggedLineageRow({
         delay: entryDelayMs / 1000,
       }}
     >
-      <div className="rounded-2xl ring-1 ring-[#B23A2A]/25 bg-[#B23A2A]/[0.04] p-3.5">
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="min-w-0">
-            <div className="font-medium text-ink truncate text-[15px] leading-tight">
+      <div className="rounded-2xl ring-1 ring-[#B23A2A]/25 bg-[#B23A2A]/[0.04] p-3.5 min-w-0">
+        <div className="flex items-baseline justify-between gap-3 min-w-0">
+          <div className="min-w-0 flex-1">
+            <div className="font-medium text-ink text-[15px] leading-tight break-words">
               {flag.speciesName}
             </div>
-            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/50 mt-0.5">
+            <div className="font-mono text-[11px] uppercase tracking-eyebrow text-ink/50 mt-0.5 break-all">
               {flag.lineage.lineage_code}
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="font-serif text-2xl leading-none text-num text-[#B23A2A]">
+            <div className="font-serif text-xl md:text-2xl leading-none text-num text-[#B23A2A]">
               {flag.be90d != null ? pct(flag.be90d) : '—'}
             </div>
             <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono mt-1">
@@ -437,11 +432,11 @@ function FlaggedLineageRow({
             </div>
           </div>
         </div>
-        <div className="mt-2 pt-2 border-t border-[#B23A2A]/15 flex items-center justify-between text-[11px] text-ink/60">
+        <div className="mt-2 pt-2 border-t border-[#B23A2A]/15 flex items-center justify-between text-[11px] text-ink/60 gap-2 min-w-0">
           <span className="font-mono uppercase tracking-eyebrow">
             Target {pct(flag.targetBe)}
           </span>
-          <span className="font-mono uppercase tracking-eyebrow">
+          <span className="font-mono uppercase tracking-eyebrow whitespace-nowrap">
             {flag.batches.length} batch{flag.batches.length === 1 ? '' : 'es'}
           </span>
         </div>
@@ -451,7 +446,7 @@ function FlaggedLineageRow({
 }
 
 // ─────────────────────────────────────────────────────────────
-// SPECIES LINEAGE CARD — 4-column generation grid
+// SPECIES LINEAGE CARD
 // ─────────────────────────────────────────────────────────────
 
 const GEN_LABELS: Array<{ gen: number; name: string; hint: string }> = [
@@ -486,13 +481,13 @@ function SpeciesLineageCard({
       }}
     >
       <div className="bezel-shell">
-        <div className="bezel-core p-5 md:p-6">
-          <div className="flex items-start justify-between gap-3 mb-4">
-            <div className="min-w-0">
+        <div className="bezel-core p-4 md:p-6">
+          <div className="flex items-start justify-between gap-3 mb-4 min-w-0">
+            <div className="min-w-0 flex-1">
               <span className="eyebrow-tag">
                 {view.species.common_name}
               </span>
-              <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink truncate">
+              <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink break-words text-balance">
                 {view.lineages.length} lineage
                 {view.lineages.length === 1 ? '' : 's'}
               </h2>
@@ -514,7 +509,7 @@ function SpeciesLineageCard({
           ) : (
             <>
               {/* Desktop 4-column grid */}
-              <div className="hidden md:grid md:grid-cols-4 gap-3">
+              <div className="hidden md:grid md:grid-cols-4 gap-3 min-w-0">
                 {GEN_LABELS.map((col) => (
                   <GenerationColumn
                     key={col.gen}
@@ -566,25 +561,21 @@ function GenerationColumn({
   targetBe: number
   minAcceptable: number
 }) {
-  // For Gen 0 column: show all lineages that originated from spore (since
-  // their `generation_count` represents how many transfers have happened,
-  // not the lineage's existence — but the spec asks for Gen 0 = spore).
-  // Show lineage_code, origin, and avg_be_90d.
   return (
-    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-3">
-      <div className="mb-3 flex items-baseline justify-between">
-        <div>
-          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-3 min-w-0">
+      <div className="mb-3 flex items-baseline justify-between gap-2 min-w-0">
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
             {label}
           </div>
-          <div className="text-[11px] text-graphite-500 mt-0.5">{hint}</div>
+          <div className="text-[11px] text-graphite-500 mt-0.5 truncate">{hint}</div>
         </div>
-        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num">
+        <span className="font-mono text-[10px] uppercase tracking-eyebrow text-ink/30 text-num shrink-0">
           {String(lineages.length).padStart(2, '0')}
         </span>
       </div>
 
-      <div className="space-y-2 min-h-[60px]">
+      <div className="space-y-2 min-h-[60px] min-w-0">
         {lineages.length === 0 ? (
           <div className="rounded-xl bg-black/[0.02] ring-1 ring-black/5 px-3 py-3 text-center text-[11px] text-ink/30">
             —
@@ -616,9 +607,6 @@ function LineageChip({
   targetBe: number
   minAcceptable: number
 }) {
-  // targetBe is used by LineageChip to scale the BE bar; ESLint just flagged
-  // the binding because the property is read inline below — we keep it but
-  // acknowledge it is referenced via the beBarWidth calc.
   void targetBe
   const be = lineage.avg_be_90d
   const isFlagged =
@@ -629,21 +617,20 @@ function LineageChip({
   )
   const stageGen = stageToGen(currentStage?.stage)
 
-  // Render a small BE sparkline bar.
   const beBarWidth =
     be == null ? 0 : Math.min(100, Math.max(0, (be / Math.max(targetBe, 0.01)) * 100))
 
   return (
     <div
       className={
-        'rounded-xl ring-1 bg-white px-3 py-2.5 ' +
+        'rounded-xl ring-1 bg-white px-3 py-2.5 min-w-0 ' +
         (isFlagged
           ? 'ring-[#B23A2A]/30 hover:ring-[#B23A2A]/50'
           : 'ring-ink/[0.06] hover:ring-ink/[0.12]')
       }
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="font-mono text-[11px] uppercase tracking-wide_lab text-ink truncate">
+      <div className="flex items-baseline justify-between gap-2 min-w-0">
+        <div className="font-mono text-[11px] uppercase tracking-wide_lab text-ink break-all min-w-0">
           {lineage.lineage_code}
         </div>
         {isFlagged && (
@@ -652,12 +639,12 @@ function LineageChip({
           </span>
         )}
       </div>
-      <div className="mt-0.5 text-[10px] text-graphite-500">
+      <div className="mt-0.5 text-[10px] text-graphite-500 truncate">
         {originLabel(lineage.origin_type)}
       </div>
-      <div className="mt-2 flex items-baseline gap-1.5">
+      <div className="mt-2 flex items-baseline gap-1.5 min-w-0">
         <span
-          className="font-serif text-xl leading-none text-num"
+          className="font-serif text-lg md:text-xl leading-none text-num"
           style={{ color: accentColor }}
         >
           {be != null ? pct(be) : '—'}
@@ -676,7 +663,7 @@ function LineageChip({
         </div>
       )}
       {currentStage && stageGen != null && (
-        <div className="mt-1.5 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
+        <div className="mt-1.5 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono break-words">
           now · {currentStage.species_name ?? 'batch'} · gen {stageGen}
         </div>
       )}
@@ -699,11 +686,11 @@ function MobileLineageCard({
   return (
     <div
       className={
-        'snap-start shrink-0 w-56 rounded-2xl ring-1 p-3 bg-white ' +
+        'snap-start shrink-0 w-56 rounded-2xl ring-1 p-3 bg-white min-w-0 ' +
         (isFlagged ? 'ring-[#B23A2A]/30' : 'ring-ink/[0.07]')
       }
     >
-      <div className="font-mono text-[12px] uppercase tracking-wide_lab text-ink">
+      <div className="font-mono text-[12px] uppercase tracking-wide_lab text-ink break-all">
         {lineage.lineage_code}
       </div>
       <div className="text-[11px] text-graphite-500 mt-0.5">
@@ -716,7 +703,7 @@ function MobileLineageCard({
         90-day BE
       </div>
       {batches.length > 0 && (
-        <div className="mt-2 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono">
+        <div className="mt-2 text-[10px] uppercase tracking-eyebrow text-ink/40 font-mono whitespace-nowrap">
           {batches.length} active batch{batches.length === 1 ? '' : 'es'}
         </div>
       )}
@@ -725,7 +712,7 @@ function MobileLineageCard({
 }
 
 // ─────────────────────────────────────────────────────────────
-// STAT TILE (mirrors FridgeView's primitive; inlined to avoid coupling)
+// STAT TILE
 // ─────────────────────────────────────────────────────────────
 
 function StatTile({
@@ -747,16 +734,16 @@ function StatTile({
       : 'text-ink'
   return (
     <div className="bezel-shell">
-      <div className="bezel-core px-4 py-4">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium">
+      <div className="bezel-core px-3 md:px-4 py-4">
+        <div className="flex items-center justify-between mb-2 gap-2 min-w-0">
+          <span className="text-[10px] uppercase tracking-eyebrow text-ink/40 font-medium truncate">
             {label}
           </span>
-          {icon && <span className="text-ink/30">{icon}</span>}
+          {icon && <span className="text-ink/30 shrink-0">{icon}</span>}
         </div>
         <div
           className={
-            'font-serif text-3xl md:text-4xl leading-none text-num ' + valueColor
+            'font-serif text-2xl md:text-4xl leading-none text-num ' + valueColor
           }
         >
           {value}
@@ -772,34 +759,34 @@ function StatTile({
 
 function LineageSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag opacity-60">Lineage</span>
-        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse" />
+        <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
       </div>
       <div className="mt-7 grid grid-cols-2 md:grid-cols-4 gap-3">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="bezel-shell">
-            <div className="bezel-core px-4 py-4">
-              <div className="h-2 w-16 rounded-full bg-ink/[0.06] animate-pulse" />
-              <div className="mt-3 h-8 w-12 rounded-full bg-ink/[0.07] animate-pulse" />
+            <div className="bezel-core px-3 md:px-4 py-4">
+              <div className="h-2 w-16 rounded-full skeleton" />
+              <div className="mt-3 h-7 w-12 rounded-full skeleton" />
             </div>
           </div>
         ))}
       </div>
       <div className="mt-8 bezel-shell">
         <div className="bezel-core p-5 space-y-3">
-          <div className="h-7 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
-          <div className="h-3 w-2/3 rounded-full bg-ink/[0.05] animate-pulse" />
-          <div className="h-16 w-full rounded-2xl bg-ink/[0.05] animate-pulse" />
+          <div className="h-6 w-1/2 rounded-full skeleton" />
+          <div className="h-3 w-2/3 rounded-full skeleton" />
+          <div className="h-16 w-full rounded-2xl skeleton" />
         </div>
       </div>
       <div className="mt-6 bezel-shell">
         <div className="bezel-core p-5">
-          <div className="h-7 w-1/3 rounded-full bg-ink/[0.06] animate-pulse mb-4" />
-          <div className="grid grid-cols-4 gap-3">
+          <div className="h-6 w-1/3 rounded-full skeleton mb-4" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-24 rounded-2xl bg-ink/[0.05] animate-pulse" />
+              <div key={i} className="h-24 rounded-2xl skeleton" />
             ))}
           </div>
         </div>
@@ -816,20 +803,22 @@ function LineageError({
   onRetry: () => void
 }) {
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Lineage</span>
-        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
           Lineage unreachable
         </h1>
       </div>
       <div className="mt-8">
         <div className="bezel-shell">
-          <div className="bezel-core p-6">
-            <div className="flex items-start gap-3">
+          <div className="bezel-core p-5 md:p-6">
+            <div className="flex items-start gap-3 min-w-0">
               <Warning size={22} weight="regular" className="text-amber_lab shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[15px] text-ink leading-relaxed">{message}</p>
+              <div className="min-w-0">
+                <p className="text-[15px] text-ink leading-relaxed break-words">
+                  {message}
+                </p>
                 <p className="mt-1 text-[12px] text-ink/50 font-mono">
                   GET /api/species · GET /api/species/:id/lineages · GET /api/batches
                 </p>
@@ -838,7 +827,7 @@ function LineageError({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
             >
               <ArrowClockwise
                 size={16}

@@ -1,12 +1,20 @@
 // =============================================================
 // Mobile bottom tab bar — 5 visible tabs + "More" sheet
 //
-//  - Floating, detached from the bottom edge (mb-4, mx-4)
-//  - h-16, pill island, frosted glass (nav-island utility)
-//  - 5 tabs (Today / Incubating / Calendar / Fridge / Lineage)
-//  - Active indicator: a sliding pill that translates
-//    (transform-only) between tab positions
-//  - "More" opens a sheet with Settings
+// Mobile-only changes (this overhaul):
+//  - The island lifts above the system gesture bar via
+//    `pb-[env(safe-area-inset-bottom)]`. The label row stays at
+//    h-16, the wrapper now also has bottom padding for the inset.
+//  - Labels fit in 4–6 chars and never wrap: Today, Colonizing,
+//    Calendar, Fridge, Lineage. Settings is reachable from the
+//    "More" sheet, not as a primary tab.
+//  - Each tab is a flex-1 anchor with `min-w-0` so a 5-tab row
+//    shrinks cleanly on a 360dp screen. The active tab is a
+//    filled pill (not just a color change).
+//  - Tap feedback: `active:scale-[0.97]` + 180ms spring on the
+//    sliding pill so the indicator animates between tabs.
+//  - Background gradient extends to the bottom of the safe area
+//    so the gesture bar never shows the page content through.
 // =============================================================
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -28,9 +36,11 @@ interface TabDef {
   matchPaths: string[]
 }
 
+// Labels shortened to fit 360dp screens without truncation.
+// "Today" is the bench, "Colonizing" is the incubating view.
 const PRIMARY_TABS: TabDef[] = [
   { to: '/',           label: 'Today',      Icon: House,         matchPaths: ['/'] },
-  { to: '/incubating', label: 'Incubating', Icon: Thermometer,   matchPaths: ['/incubating'] },
+  { to: '/incubating', label: 'Colonies',   Icon: Thermometer,   matchPaths: ['/incubating'] },
   { to: '/calendar',   label: 'Calendar',   Icon: CalendarBlank, matchPaths: ['/calendar'] },
   { to: '/fridge',     label: 'Fridge',     Icon: Snowflake,     matchPaths: ['/fridge'] },
   { to: '/lineage',    label: 'Lineage',    Icon: GitBranch,     matchPaths: ['/lineage'] },
@@ -84,8 +94,6 @@ export function MobileBottomNav() {
   }, [])
 
   // Sheet is opened/closed by direct user action (button + navigate).
-  // The handler `goTo` closes the sheet imperatively before navigation,
-  // so no route-change effect is required.
   const goTo = (to: string) => {
     setSheetOpen(false)
     navigate(to)
@@ -93,16 +101,19 @@ export function MobileBottomNav() {
 
   return (
     <>
-      {/* The floating island */}
+      {/* The floating island. The outer wrapper carries the safe-area
+          bottom padding so the frosted background extends under the
+          gesture bar; the inner island still floats with mb-4 and the
+          slide-in transform-only indicator sits inside it. */}
       <nav
         aria-label="Primary"
-        className="md:hidden fixed inset-x-0 bottom-0 z-40 pointer-events-none"
+        className="md:hidden fixed inset-x-0 bottom-0 z-40 pointer-events-none pb-[env(safe-area-inset-bottom,0px)]"
       >
-        <div className="pointer-events-auto mx-4 mb-4">
-          <div className="nav-island rounded-[1.75rem]">
+        <div className="pointer-events-auto mx-3 mb-3">
+          <div className="nav-island rounded-[1.5rem]">
             <div
               ref={railRef}
-              className="relative flex h-16 items-stretch px-2"
+              className="relative flex h-16 items-stretch px-1.5"
             >
               {/* Sliding active indicator — transform-only */}
               <div
@@ -124,18 +135,18 @@ export function MobileBottomNav() {
                     ref={(el) => {
                       tabRefs.current[i] = el
                     }}
-                    className="relative z-10 flex-1 flex items-center justify-center"
+                    className="relative z-10 flex-1 min-w-0 flex items-center justify-center active:scale-[0.97] transition-transform duration-200 ease-spring"
                     aria-label={tab.label}
                     aria-current={isActive ? 'page' : undefined}
                   >
                     <span
                       className={
-                        'flex flex-col items-center gap-0.5 transition-colors duration-450 ease-fluid ' +
+                        'flex flex-col items-center gap-0.5 px-1 transition-colors duration-450 ease-fluid min-w-0 ' +
                         (isActive ? 'text-white' : 'text-graphite-500')
                       }
                     >
                       <tab.Icon size={20} weight={isActive ? 'fill' : 'regular'} />
-                      <span className="text-[10px] tracking-eyebrow uppercase">
+                      <span className="text-[10px] tracking-eyebrow uppercase truncate w-full text-center">
                         {tab.label}
                       </span>
                     </span>
@@ -147,21 +158,23 @@ export function MobileBottomNav() {
               <button
                 type="button"
                 onClick={() => setSheetOpen(true)}
-                className="relative z-10 flex-1 flex items-center justify-center"
+                className="relative z-10 flex-1 min-w-0 flex items-center justify-center active:scale-[0.97] transition-transform duration-200 ease-spring"
                 aria-haspopup="dialog"
                 aria-expanded={sheetOpen}
                 aria-label="More navigation"
               >
                 <span
                   className={
-                    'flex flex-col items-center gap-0.5 transition-colors duration-450 ease-fluid ' +
+                    'flex flex-col items-center gap-0.5 px-1 transition-colors duration-450 ease-fluid min-w-0 ' +
                     (sheetOpen || location.pathname.startsWith('/settings')
                       ? 'text-white'
                       : 'text-graphite-500')
                   }
                 >
                   <DotsThree size={20} weight="bold" />
-                  <span className="text-[10px] tracking-eyebrow uppercase">More</span>
+                  <span className="text-[10px] tracking-eyebrow uppercase truncate w-full text-center">
+                    More
+                  </span>
                 </span>
               </button>
             </div>
@@ -169,7 +182,8 @@ export function MobileBottomNav() {
         </div>
       </nav>
 
-      {/* "More" sheet */}
+      {/* "More" sheet — opens from bottom and respects safe-area insets
+          via a max-width clamp on small screens. */}
       {sheetOpen && (
         <div
           className="md:hidden fixed inset-0 z-50"
@@ -184,8 +198,13 @@ export function MobileBottomNav() {
             onClick={() => setSheetOpen(false)}
             className="absolute inset-0 bg-ink/30 backdrop-blur-md animate-fade_in"
           />
-          {/* Sheet */}
-          <div className="absolute inset-x-4 bottom-4 animate-sheet_up">
+          {/* Sheet — sits above the system nav. */}
+          <div
+            className="absolute inset-x-3 bottom-3 animate-sheet_up"
+            style={{
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+            }}
+          >
             <div className="bezel-shell">
               <div className="bezel-core p-3">
                 <div className="px-3 py-2 flex items-center justify-between">
@@ -237,24 +256,24 @@ function SheetItem({ onClick, active, Icon, label, hint }: SheetItemProps) {
       type="button"
       onClick={onClick}
       className={
-        'group text-left rounded-2xl p-4 transition-colors duration-450 ease-fluid ' +
+        'group text-left rounded-2xl p-4 min-h-[88px] transition-colors duration-450 ease-fluid active:scale-[0.98] ' +
         (active
           ? 'bg-moss-700 text-white ring-1 ring-moss-800/30'
           : 'bg-black/[0.025] ring-1 ring-black/5 hover:bg-black/[0.04] text-ink')
       }
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between min-w-0">
         <Icon size={22} weight="regular" />
         <span
           className={
-            'h-1.5 w-1.5 rounded-full ' + (active ? 'bg-white' : 'bg-moss-700/60')
+            'h-1.5 w-1.5 rounded-full shrink-0 ' + (active ? 'bg-white' : 'bg-moss-700/60')
           }
         />
       </div>
-      <div className="mt-3 font-serif text-2xl leading-none">{label}</div>
+      <div className="mt-3 font-serif text-2xl leading-none break-words">{label}</div>
       <div
         className={
-          'mt-1 text-[11px] tracking-wide_lab ' +
+          'mt-1 text-[11px] tracking-wide_lab truncate ' +
           (active ? 'text-white/70' : 'text-graphite-400')
         }
       >

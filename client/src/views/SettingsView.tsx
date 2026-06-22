@@ -1,9 +1,18 @@
 // =============================================================
 // Myco Lab — Settings (Phase 3 Step 2)
 //
-// Desktop-optimized constraint-solver control center.
-// Two-column layout at md+ (Hardware left, Species grid right),
-// stacked on mobile.
+// Mobile-overhaul changes:
+//  - H1 down to text-4xl/6xl.
+//  - Hardware + Species cards stack to single-column on mobile
+//    (grid-cols-1 md:grid-cols-12) — already the case, but the
+//    inner number-field grid drops to grid-cols-1 sm:grid-cols-2
+//    so wide inputs never overflow a 360dp screen.
+//  - The "Run scheduler" button and Save button each carry
+//    min-h-[44px] for touch.
+//  - Toast is positioned via env(safe-area-inset-bottom) so it
+//    never hides under the system gesture bar.
+//  - Every input wrapper uses min-w-0 + overflow-x-hidden so
+//    long numbers don't push the row out of the card.
 //
 // Data flow:
 //   1. GET /api/settings → SettingsPayload
@@ -11,9 +20,6 @@
 //   3. Species profiles: PUT /settings/species/:id/profile
 //      (creates a NEW effective species_profile row, expiring the prior one)
 //   4. After each save, POST /scheduler/run to regenerate tasks.
-//
-// Design system: bezel-shell/bezel-core, eyebrow-tag, Instrument Serif H1,
-// framer-motion fade/slide. All tokens come from tailwind.config.js + index.css.
 // =============================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -206,10 +212,6 @@ function SettingsReady({
   const [runStatus, setRunStatus] = useState<SaveStatus>('idle')
   const [toast, setToast] = useState<string | null>(null)
 
-  // The parent re-mounts this component (via key) when the upstream
-  // payload identity changes — so no effect-based sync is needed here.
-  // Drafts are seeded from props at mount time.
-
   const hwDirty = useMemo(() => {
     const original = toHardwareDraft(data.hardware)
     return (Object.keys(original) as Array<keyof HardwareDraft>).some(
@@ -217,7 +219,6 @@ function SettingsReady({
     )
   }, [data.hardware, hwDraft])
 
-  // Auto-clear "saved ✓" after 1.8s.
   useEffect(() => {
     if (hwStatus !== 'saved') return
     const t = window.setTimeout(() => setHwStatus('idle'), 1800)
@@ -238,7 +239,6 @@ function SettingsReady({
     return () => window.clearTimeout(t)
   }, [speciesStatus])
 
-  // ── Hardware save ─────────────────────────────────────────
   const handleSaveHardware = useCallback(async () => {
     if (!hwDirty || hwStatus === 'saving') return
     setHwStatus('saving')
@@ -256,7 +256,6 @@ function SettingsReady({
     }
   }, [hwDraft, hwDirty, hwStatus, onReload])
 
-  // ── Species save ──────────────────────────────────────────
   const handleSaveSpecies = useCallback(
     async (draft: SpeciesDraft) => {
       const id = draft.id
@@ -294,7 +293,6 @@ function SettingsReady({
     [onReload],
   )
 
-  // ── Manual scheduler re-run ───────────────────────────────
   const handleRunScheduler = useCallback(async () => {
     if (runStatus === 'saving') return
     setRunStatus('saving')
@@ -321,17 +319,17 @@ function SettingsReady({
         initial={reduceMotion ? false : { opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
-        className="mx-auto w-full max-w-6xl"
+        className="mx-auto w-full max-w-6xl min-w-0"
       >
         {/* Header */}
-        <div className="pt-2">
-          <div className="flex items-center gap-3">
+        <div className="pt-2 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
             <span className="eyebrow-tag">Settings</span>
             <span className="text-[10px] uppercase tracking-eyebrow text-ink/40">
               Step 4 · Constraint Solver
             </span>
           </div>
-          <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+          <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
             Bench configuration.
           </h1>
           <p className="mt-3 max-w-xl text-[15px] leading-relaxed text-graphite-500">
@@ -342,15 +340,15 @@ function SettingsReady({
         </div>
 
         {/* Top action: Run scheduler */}
-        <div className="mt-7">
+        <div className="mt-6 md:mt-7">
           <div className="bezel-shell">
-            <div className="bezel-core flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4">
+            <div className="bezel-core flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 md:px-5 py-4">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="shrink-0 h-9 w-9 rounded-full bg-moss-700/10 text-moss-700 flex items-center justify-center">
                   <PlayCircle size={18} weight="regular" />
                 </div>
                 <div className="min-w-0">
-                  <div className="font-medium text-ink leading-snug">
+                  <div className="font-medium text-ink leading-snug break-words">
                     Regenerate scheduled tasks
                   </div>
                   <div className="text-[12px] text-graphite-500 font-mono">
@@ -363,7 +361,7 @@ function SettingsReady({
                 onClick={handleRunScheduler}
                 disabled={runStatus === 'saving'}
                 className={
-                  'group inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-450 ease-fluid ' +
+                  'group min-h-[44px] inline-flex items-center gap-2 px-4 py-2.5 rounded-full text-sm font-medium transition-all duration-450 ease-fluid ' +
                   (runStatus === 'saved'
                     ? 'bg-moss-700 text-paper'
                     : runStatus === 'error'
@@ -401,9 +399,8 @@ function SettingsReady({
         </div>
 
         {/* Two-column bento */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
-          {/* Section A — Hardware */}
-          <section className="md:col-span-5">
+        <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 min-w-0">
+          <section className="md:col-span-5 min-w-0">
             <HardwareSection
               draft={hwDraft}
               onChange={setHwDraft}
@@ -414,8 +411,7 @@ function SettingsReady({
             />
           </section>
 
-          {/* Section B — Species grid */}
-          <section className="md:col-span-7">
+          <section className="md:col-span-7 min-w-0">
             <SpeciesSection
               drafts={speciesDrafts}
               statuses={speciesStatus}
@@ -426,13 +422,12 @@ function SettingsReady({
           </section>
         </div>
 
-        <div className="mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
+        <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow text-ink/40">
           <span className="h-1.5 w-1.5 rounded-full bg-moss-700" />
           <span>End of settings</span>
         </div>
       </motion.div>
 
-      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -440,13 +435,17 @@ function SettingsReady({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 16 }}
             transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-            className="fixed left-1/2 -translate-x-1/2 bottom-28 z-50 px-4"
+            className="fixed left-1/2 -translate-x-1/2 z-50 px-4"
+            style={{
+              bottom:
+                'calc(env(safe-area-inset-bottom, 0px) + 5.5rem + 0.75rem)',
+            }}
             role="status"
           >
             <div className="bezel-shell">
-              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink">
-                <Warning size={18} weight="regular" className="text-amber_lab" />
-                <span>{toast}</span>
+              <div className="bezel-core px-4 py-3 flex items-center gap-2 text-sm text-ink max-w-[min(92vw,32rem)]">
+                <Warning size={18} weight="regular" className="text-amber_lab shrink-0" />
+                <span className="break-words min-w-0">{toast}</span>
               </div>
             </div>
           </motion.div>
@@ -480,13 +479,13 @@ function HardwareSection({
 
   return (
     <div className="bezel-shell">
-      <div className="bezel-core p-5 md:p-6">
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <div>
+      <div className="bezel-core p-4 md:p-6 min-w-0">
+        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
               Hardware
             </span>
-            <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
               PC capacity & cycles
             </h2>
           </div>
@@ -498,7 +497,7 @@ function HardwareSection({
           How many runs fit in a day, and how long each cycle cooks and cools.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
           <NumberField
             label="Max PC runs / day"
             hint="Hard daily cap"
@@ -593,8 +592,8 @@ function HardwareSection({
           />
         </div>
 
-        <div className="mt-6 flex items-center justify-between gap-3">
-          <div className="text-[12px] text-graphite-500 font-mono">
+        <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
+          <div className="text-[12px] text-graphite-500 font-mono truncate">
             PUT /api/settings/hardware
           </div>
           <SaveButton
@@ -605,7 +604,7 @@ function HardwareSection({
           />
         </div>
         {error && (
-          <div className="mt-3 text-[12px] text-[#B23A2A] font-mono">
+          <div className="mt-3 text-[12px] text-[#B23A2A] font-mono break-words">
             {error}
           </div>
         )}
@@ -642,13 +641,13 @@ function SpeciesSection({
 
   return (
     <div className="bezel-shell">
-      <div className="bezel-core p-5 md:p-6">
-        <div className="flex items-start justify-between gap-3 mb-1">
-          <div>
+      <div className="bezel-core p-4 md:p-6 min-w-0">
+        <div className="flex items-start justify-between gap-3 mb-1 min-w-0">
+          <div className="min-w-0 flex-1">
             <span className="eyebrow-tag !bg-ink/[0.06] !text-ink">
               Species
             </span>
-            <h2 className="mt-3 font-serif text-3xl leading-[1.05] tracking-tight text-ink">
+            <h2 className="mt-3 font-serif text-2xl md:text-3xl leading-[1.05] tracking-tight text-ink text-balance">
               Biological timelines
             </h2>
           </div>
@@ -661,7 +660,7 @@ function SpeciesSection({
           the biological-efficiency threshold that triggers senescence flags.
         </p>
 
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {drafts.length === 0 ? (
             <div className="rounded-2xl bg-black/[0.025] ring-1 ring-black/5 px-4 py-6 text-center text-[13px] text-graphite-500">
               No species configured. Add one in the database to begin.
@@ -698,10 +697,10 @@ function SpeciesCard({
   onSave: () => void
 }) {
   return (
-    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-4 md:p-5">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <div className="font-serif text-2xl leading-tight text-ink truncate">
+    <div className="rounded-2xl ring-1 ring-ink/[0.07] bg-paper/40 p-3 md:p-5 min-w-0 overflow-hidden">
+      <div className="flex items-start justify-between gap-3 mb-3 min-w-0">
+        <div className="min-w-0 flex-1">
+          <div className="font-serif text-xl md:text-2xl leading-tight text-ink break-words text-balance">
             {draft.common_name}
           </div>
           <div className="text-[11px] text-graphite-500 font-mono uppercase tracking-eyebrow mt-0.5">
@@ -710,7 +709,7 @@ function SpeciesCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 min-w-0">
         <RangeField
           label="LC → Gen 1"
           min={draft.lc_to_gen1_days_min}
@@ -825,8 +824,8 @@ function SpeciesCard({
         />
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-graphite-500 font-mono">
+      <div className="mt-4 flex items-center justify-between gap-3 min-w-0">
+        <div className="text-[11px] text-graphite-500 font-mono truncate">
           PUT /api/settings/species/{draft.id}/profile
         </div>
         <SaveButton
@@ -838,7 +837,7 @@ function SpeciesCard({
         />
       </div>
       {error && (
-        <div className="mt-2 text-[12px] text-[#B23A2A] font-mono">
+        <div className="mt-2 text-[12px] text-[#B23A2A] font-mono break-words">
           {error}
         </div>
       )}
@@ -874,18 +873,18 @@ function NumberField({
   format?: (n: number) => string
 }) {
   return (
-    <label className="block">
-      <div className="flex items-baseline justify-between mb-1">
-        <span className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium">
+    <label className="block min-w-0">
+      <div className="flex items-baseline justify-between mb-1 gap-2 min-w-0">
+        <span className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium truncate">
           {label}
         </span>
         {hint && (
-          <span className="text-[10px] text-ink/30 font-mono">{hint}</span>
+          <span className="text-[10px] text-ink/30 font-mono shrink-0">{hint}</span>
         )}
       </div>
       <div
         className={
-          'flex items-center gap-1.5 rounded-full bg-paper ring-1 ring-ink/10 px-3 py-2 transition-all duration-450 ease-fluid ' +
+          'flex items-center gap-1.5 rounded-full bg-paper ring-1 ring-ink/10 px-3 py-2 transition-all duration-450 ease-fluid min-h-[44px] ' +
           (disabled ? 'opacity-60' : 'focus-within:ring-ink/30 hover:ring-ink/20')
         }
       >
@@ -922,13 +921,13 @@ function RangeField({
   onChange: (min: number, max: number) => void
 }) {
   return (
-    <div className="block">
-      <div className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium mb-1">
+    <div className="block min-w-0">
+      <div className="text-[10px] uppercase tracking-eyebrow text-ink/60 font-medium mb-1 truncate">
         {label}
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30">
-          <span className="text-[10px] text-ink/40 font-mono">min</span>
+      <div className="grid grid-cols-2 gap-1.5 min-w-0">
+        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30 min-h-[44px] min-w-0">
+          <span className="text-[10px] text-ink/40 font-mono shrink-0">min</span>
           <input
             type="number"
             value={Number.isFinite(min) ? min : ''}
@@ -939,8 +938,8 @@ function RangeField({
             className="flex-1 min-w-0 bg-transparent outline-none text-[13px] text-ink font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
         </div>
-        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30">
-          <span className="text-[10px] text-ink/40 font-mono">max</span>
+        <div className="flex items-center gap-1 rounded-full bg-paper ring-1 ring-ink/10 px-2.5 py-1.5 focus-within:ring-ink/30 min-h-[44px] min-w-0">
+          <span className="text-[10px] text-ink/40 font-mono shrink-0">max</span>
           <input
             type="number"
             value={Number.isFinite(max) ? max : ''}
@@ -988,7 +987,7 @@ function SaveButton({
       onClick={onClick}
       disabled={disabled || (!dirty && isIdle) || isSaving}
       className={
-        'group inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium ring-1 transition-all duration-450 ease-fluid active:scale-[0.98] ' +
+        'group min-h-[44px] inline-flex items-center gap-2 px-4 py-2 rounded-full text-[13px] font-medium ring-1 transition-all duration-450 ease-fluid active:scale-[0.98] ' +
         colorClasses
       }
     >
@@ -1010,28 +1009,28 @@ function SaveButton({
 
 function SettingsSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag opacity-60">Settings</span>
-        <div className="mt-5 h-12 w-2/3 rounded-2xl bg-ink/[0.06] animate-pulse" />
-        <div className="mt-3 h-3 w-1/2 rounded-full bg-ink/[0.05] animate-pulse" />
+        <div className="mt-5 h-9 w-2/3 rounded-2xl skeleton" />
+        <div className="mt-3 h-3 w-1/2 rounded-full skeleton" />
       </div>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-4">
+      <div className="mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 min-w-0">
         <div className="md:col-span-5 bezel-shell">
-          <div className="bezel-core p-5 space-y-3">
-            <div className="h-8 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
-            <div className="grid grid-cols-2 gap-3">
+          <div className="bezel-core p-4 md:p-5 space-y-3">
+            <div className="h-7 w-1/2 rounded-full skeleton" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {Array.from({ length: 10 }).map((_, i) => (
-                <div key={i} className="h-12 rounded-full bg-ink/[0.05] animate-pulse" />
+                <div key={i} className="h-12 rounded-full skeleton" />
               ))}
             </div>
           </div>
         </div>
         <div className="md:col-span-7 bezel-shell">
-          <div className="bezel-core p-5 space-y-4">
-            <div className="h-8 w-1/2 rounded-full bg-ink/[0.06] animate-pulse" />
-            <div className="h-40 rounded-2xl bg-ink/[0.05] animate-pulse" />
-            <div className="h-40 rounded-2xl bg-ink/[0.05] animate-pulse" />
+          <div className="bezel-core p-4 md:p-5 space-y-4">
+            <div className="h-7 w-1/2 rounded-full skeleton" />
+            <div className="h-40 rounded-2xl skeleton" />
+            <div className="h-40 rounded-2xl skeleton" />
           </div>
         </div>
       </div>
@@ -1047,20 +1046,22 @@ function SettingsError({
   onRetry: () => void
 }) {
   return (
-    <div className="mx-auto w-full max-w-3xl">
+    <div className="mx-auto w-full max-w-3xl min-w-0">
       <div className="pt-2">
         <span className="eyebrow-tag">Settings</span>
-        <h1 className="mt-5 font-serif text-5xl md:text-6xl leading-[0.95] tracking-tight text-ink">
+        <h1 className="mt-4 md:mt-5 font-serif text-4xl md:text-6xl leading-[0.95] tracking-tight text-ink text-balance break-words">
           Settings unreachable
         </h1>
       </div>
       <div className="mt-8">
         <div className="bezel-shell">
-          <div className="bezel-core p-6">
-            <div className="flex items-start gap-3">
+          <div className="bezel-core p-5 md:p-6">
+            <div className="flex items-start gap-3 min-w-0">
               <Warning size={22} weight="regular" className="text-amber_lab shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[15px] text-ink leading-relaxed">{message}</p>
+              <div className="min-w-0">
+                <p className="text-[15px] text-ink leading-relaxed break-words">
+                  {message}
+                </p>
                 <p className="mt-1 text-[12px] text-ink/50 font-mono">
                   GET /api/settings
                 </p>
@@ -1069,7 +1070,7 @@ function SettingsError({
             <button
               type="button"
               onClick={onRetry}
-              className="mt-5 group inline-flex items-center gap-2 btn-moss"
+              className="mt-5 min-h-[44px] group inline-flex items-center gap-2 btn-moss"
             >
               <ArrowClockwise
                 size={16}
