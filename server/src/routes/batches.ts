@@ -226,6 +226,48 @@ router.put('/:id', (req: Request, res: Response) => {
   }
 });
 
+// ── PUT /api/batches/:id/progress ─────────────────────────────────
+router.put('/:id/progress', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { pct } = req.body;
+  if (typeof pct !== 'number') return res.status(400).json({ success: false, error: 'pct is required' });
+
+  try {
+    const batch = db.prepare(`
+      SELECT b.stage, sp.lc_to_gen1_days_max, sp.gen2_colonization_days_max, sp.bulk_colonization_days_max
+      FROM batch b
+      JOIN species_profile sp ON b.species_id = sp.id
+      WHERE b.id = ?
+    `).get(id) as any;
+
+    if (!batch) return res.status(404).json({ success: false, error: 'Batch not found' });
+
+    let totalDays = 14;
+    if (batch.stage === 'GEN1_GRAIN') totalDays = batch.lc_to_gen1_days_max ?? 21;
+    else if (batch.stage === 'GEN2_GRAIN') totalDays = batch.gen2_colonization_days_max ?? 21;
+    else if (batch.stage === 'BULK_BLOCK') totalDays = batch.bulk_colonization_days_max ?? 21;
+
+    const daysAgo = (pct / 100) * totalDays;
+    const targetDaysFromNow = totalDays - daysAgo;
+
+    const startStr = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+    const targetStr = new Date(Date.now() + targetDaysFromNow * 24 * 60 * 60 * 1000).toISOString();
+
+    db.prepare(`
+      UPDATE batch SET 
+        colonization_start = ?,
+        colonization_target = ?,
+        updated_at = datetime('now')
+      WHERE id = ?
+    `).run(startStr, targetStr, id);
+
+    res.json({ success: true, message: 'Progress updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ── DELETE /api/batches/:id ────────────────────────────────────
 router.delete('/:id', (req: Request, res: Response) => {
   const db = getDb();

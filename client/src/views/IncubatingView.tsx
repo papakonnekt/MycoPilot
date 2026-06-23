@@ -41,6 +41,7 @@ import {
   type BatchRow,
   type SpeciesRow,
   type LineageRow,
+  updateBatchProgress
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
@@ -337,6 +338,7 @@ function IncubatingReady({
                   isOverdue={b.isOverdue}
                   hero={i === 0}
                   entryDelayMs={Math.min(i * 80, 480)}
+                  onRefresh={() => onReload()}
                 />
               ))}
             </AnimatePresence>
@@ -465,6 +467,7 @@ interface BatchCardProps {
   isOverdue: boolean
   hero: boolean
   entryDelayMs: number
+  onRefresh?: () => void
 }
 
 function BatchCard({
@@ -475,8 +478,14 @@ function BatchCard({
   isOverdue,
   hero,
   entryDelayMs,
+  onRefresh,
 }: BatchCardProps) {
   const reduceMotion = useReducedMotion()
+
+  const [localPct, setLocalPct] = useState(pct)
+  useEffect(() => {
+    setLocalPct(pct)
+  }, [pct])
 
   const widthMV = useMotionValue(0)
   const widthPct = useTransform(widthMV, (v) => `${v}%`)
@@ -599,26 +608,48 @@ function BatchCard({
               </span>
             </div>
 
-            <div className="mt-1.5 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
-              <motion.div
-                style={{
-                  width: widthPct,
-                  backgroundColor: fillColor,
-                  boxShadow: isComplete
-                    ? 'inset 0 1px 0 rgba(255,255,255,0.15)'
-                    : 'none',
+            <div className="mt-1.5 flex flex-col gap-2">
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                <motion.div
+                  style={{
+                    width: widthPct,
+                    backgroundColor: fillColor,
+                    boxShadow: isComplete
+                      ? 'inset 0 1px 0 rgba(255,255,255,0.15)'
+                      : 'none',
+                  }}
+                  className="h-full"
+                  animate={
+                    isOverdue && !reduceMotion
+                      ? { opacity: [0.7, 1, 0.7] }
+                      : { opacity: 1 }
+                  }
+                  transition={
+                    isOverdue && !reduceMotion
+                      ? { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
+                      : { duration: 0.3 }
+                  }
+                />
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={localPct}
+                onChange={(e) => setLocalPct(parseInt(e.target.value))}
+                onMouseUp={async () => {
+                  if (localPct !== pct) {
+                    await updateBatchProgress(row.id, localPct);
+                    if (onRefresh) onRefresh();
+                  }
                 }}
-                className="h-full"
-                animate={
-                  isOverdue && !reduceMotion
-                    ? { opacity: [0.7, 1, 0.7] }
-                    : { opacity: 1 }
-                }
-                transition={
-                  isOverdue && !reduceMotion
-                    ? { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
-                    : { duration: 0.3 }
-                }
+                onTouchEnd={async () => {
+                  if (localPct !== pct) {
+                    await updateBatchProgress(row.id, localPct);
+                    if (onRefresh) onRefresh();
+                  }
+                }}
+                className="w-full accent-bio-green h-2 cursor-pointer"
               />
             </div>
 

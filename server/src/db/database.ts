@@ -34,7 +34,7 @@ export function closeDb(): void {
  * including GENERATED ALWAYS AS columns natively.
  * Idempotent: uses CREATE TABLE IF NOT EXISTS throughout.
  */
-export function migrate(seedData = false): void {
+export function migrate(): void {
   const database = getDb();
 
   const schemaPath = path.resolve(__dirname, 'schema.sql');
@@ -49,22 +49,6 @@ export function migrate(seedData = false): void {
     if (!msg.includes('already exists') && !msg.includes('duplicate column')) {
       throw err;
     }
-  }
-
-  if (seedData) {
-    const seedsPath = path.resolve(__dirname, 'seeds.sql');
-    const seeds = fs.readFileSync(seedsPath, 'utf8');
-
-    try {
-      database.exec(seeds);
-    } catch (err) {
-      const msg = (err as Error).message;
-      // Ignore UNIQUE violations on re-seed (idempotent)
-      if (!msg.includes('UNIQUE constraint failed')) {
-        throw err;
-      }
-    }
-    console.log('✅ Seed data applied.');
   }
 
   console.log('✅ Database schema migrated.');

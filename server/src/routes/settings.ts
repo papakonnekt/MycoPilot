@@ -80,7 +80,31 @@ router.post('/setup', (req: Request, res: Response) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      const insertTargets = db.prepare(`
+        INSERT INTO weekly_targets (species_id, target_blocks) VALUES (?, ?)
+      `);
+
+      const insertFridge = db.prepare(`
+        INSERT INTO fridge_thresholds (species_id, min_gen2_bags, target_gen2_bags) VALUES (?, ?, ?)
+      `);
+
+      const insertLineage = db.prepare(`
+        INSERT INTO lineage (species_id, lineage_code, origin_type, generation_number)
+        VALUES (?, ?, 'SPORE/CULTURE', 0)
+      `);
+
+      const insertRawMaterial = db.prepare(`
+        INSERT INTO raw_material (material_name, unit, quantity_on_hand, reorder_threshold, reorder_quantity, notes)
+        VALUES (?, ?, ?, 0, 0, ?)
+      `);
+
+      const insertBatch = db.prepare(`
+        INSERT INTO batch (batch_id, species_id, lineage_id, stage, status, quantity, colonization_start, colonization_target)
+        VALUES (?, ?, ?, ?, 'INCUBATING', ?, ?, ?)
+      `);
+
       for (const sp of s.species) {
+        // 1. Insert Species
         const result = insertSpecies.run({
           commonName: sp.commonName,
           substrateType: sp.substrateType || 'HWFP',
@@ -88,6 +112,7 @@ router.post('/setup', (req: Request, res: Response) => {
         });
         const speciesId = result.lastInsertRowid;
         
+        // 2. Insert Profile
         insertProfile.run(
           speciesId,
           sp.lcToGen1DaysMin ?? 14, sp.lcToGen1DaysMax ?? 21,
@@ -96,8 +121,68 @@ router.post('/setup', (req: Request, res: Response) => {
           sp.fruitingDaysMin ?? 7, sp.fruitingDaysMax ?? 14,
           sp.gen1ToGen2Ratio ?? 10, sp.gen2ToBulkSpawnPct ?? 0.2,
           sp.targetBiologicalEfficiency ?? 0.5, sp.senescenceThresholdPct ?? 0.2,
-          sp.maxGenerations ?? 8, sp.sporeCloneFreq ?? 3
+          sp.maxGenerations ?? 3, sp.sporeCloneFreq ?? 3
         );
+
+        // 3. Targets & Fridge
+        if (sp.weeklyTargetBlocks) insertTargets.run(speciesId, sp.weeklyTargetBlocks);
+        if (sp.fridgeTargetBags && sp.fridgeMinBags) insertFridge.run(speciesId, sp.fridgeMinBags, sp.fridgeTargetBags);
+
+        // 4. Lineage Auto-Generation (e.g. "Blue Oyster" -> "BO-01")
+        const initials = sp.commonName.split(' ').map((w: string) => w[0]).join('').toUpperCase();
+        const lineageCode = \`\${initials}-01\`;
+        const lineageResult = insertLineage.run(speciesId, lineageCode);
+        const lineageId = lineageResult.lastInsertRowid;
+
+        // 5. Raw Materials (Inventory)
+        if (sp.startingLcVolumeMl > 0) {
+          insertRawMaterial.run(\`Liquid Culture (\${lineageCode})\`, 'mL', sp.startingLcVolumeMl, \`Starting LC volume from onboarding\`);
+        }
+        
+        if (sp.sterilizedGrains) {
+          let totalLbs = 0;
+          let notesArr = [];
+          for (const item of sp.sterilizedGrains) {
+            totalLbs += item.weightLbs * item.quantity;
+            notesArr.push(\`\${item.quantity}x \${item.weightLbs}lb bags\`);
+          }
+          if (totalLbs > 0) {
+            insertRawMaterial.run(\`Sterilized Grain (\${sp.commonName})\`, 'lbs', totalLbs, \`Ready-to-inoculate bags: \${notesArr.join(', ')}\`);
+          }
+        }
+
+        if (sp.sterilizedSubstrate) {
+          let totalLbs = 0;
+          let notesArr = [];
+          for (const item of sp.sterilizedSubstrate) {
+            totalLbs += item.weightLbs * item.quantity;
+            notesArr.push(\`\${item.quantity}x \${item.weightLbs}lb bags\`);
+          }
+          if (totalLbs > 0) {
+            insertRawMaterial.run(\`Sterilized Substrate (\${sp.commonName})\`, 'lbs', totalLbs, \`Ready-to-inoculate bags: \${notesArr.join(', ')}\`);
+          }
+        }
+
+        // 6. Incubating Spawn
+        if (sp.incubating && sp.incubating.length > 0) {
+          for (const item of sp.incubating) {
+            const bId = `BATCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            
+            let totalDays = 14;
+            if (item.stage === 'GEN1_GRAIN') totalDays = sp.lcToGen1DaysMax ?? 21;
+            else if (item.stage === 'GEN2_GRAIN') totalDays = sp.gen2ColonizationDaysMax ?? 21;
+            else if (item.stage === 'BULK_BLOCK') totalDays = sp.bulkColonizationDaysMax ?? 21;
+            
+            const pct = item.colonizationPct || 0;
+            const daysAgo = (pct / 100) * totalDays;
+            const targetDaysFromNow = totalDays - daysAgo;
+
+            const startStr = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
+            const targetStr = new Date(Date.now() + targetDaysFromNow * 24 * 60 * 60 * 1000).toISOString();
+
+            insertBatch.run(bId, speciesId, lineageId, item.stage, item.quantity, startStr, targetStr);
+          }
+        }
       }
     })();
 

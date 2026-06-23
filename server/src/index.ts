@@ -34,15 +34,6 @@ app.use(express.json());
 // Apply schema on every startup (idempotent CREATE IF NOT EXISTS)
 migrate(false);
 
-// Seed only if the species table is empty (first-run detection)
-const { getDb } = require('./db/database');
-const _db = getDb();
-const speciesCount = (_db.prepare('SELECT COUNT(*) as n FROM species').get() as {n:number}).n;
-if (speciesCount === 0) {
-  migrate(true);
-  console.log('🌱 First run — seed data applied.');
-}
-
 
 // ── ROUTES ────────────────────────────────────────────────────
 app.use('/api/tasks',     tasksRouter);

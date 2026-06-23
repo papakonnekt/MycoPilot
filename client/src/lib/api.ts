@@ -372,6 +372,8 @@ export function setupSettings(
       commonName: string,
       substrateType?: string,
       bulkPrepMethod?: string,
+      
+      // Timelines
       lcToGen1DaysMin?: number,
       lcToGen1DaysMax?: number,
       gen2ColonizationDaysMin?: number,
@@ -379,7 +381,26 @@ export function setupSettings(
       bulkColonizationDaysMin?: number,
       bulkColonizationDaysMax?: number,
       fruitingDaysMin?: number,
-      fruitingDaysMax?: number
+      fruitingDaysMax?: number,
+
+      // Limits & Stats
+      gen1ToGen2Ratio?: number,
+      gen2ToBulkSpawnPct?: number,
+      targetBiologicalEfficiency?: number,
+      senescenceThresholdPct?: number,
+      maxGenerations?: number,
+      sporeCloneFreq?: number,
+
+      // Targets
+      weeklyTargetBlocks?: number,
+      fridgeTargetBags?: number,
+      fridgeMinBags?: number,
+
+      // Inventory & Incubating
+      startingLcVolumeMl?: number,
+      sterilizedGrains?: Array<{ weightLbs: number, quantity: number }>,
+      sterilizedSubstrate?: Array<{ weightLbs: number, quantity: number }>,
+      incubating?: Array<{ stage: string, quantity: number, colonizationPct: number }>
     }>
   }
 ): Promise<{ success: boolean; message: string }> {
@@ -692,6 +713,10 @@ export function createBatch(data: Partial<BatchRow>): Promise<{ id: number }> {
 
 export function updateBatch(id: string | number, data: Partial<BatchRow>): Promise<void> {
   return request(`/batches/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+export function updateBatchProgress(id: string | number, pct: number): Promise<void> {
+  return request(`/batches/${id}/progress`, { method: 'PUT', body: JSON.stringify({ pct }) })
 }
 
 export function deleteBatch(id: string | number): Promise<void> {
