@@ -121,6 +121,13 @@ function deriveProgress(row: BatchRow): {
 function humanizeStage(stage: string | undefined | null): string {
   const s = (stage ?? '').toUpperCase()
   if (!s) return 'Active'
+
+  // Handle dynamic generations: GEN1_GRAIN, GEN2_GRAIN, GEN3_GRAIN, etc.
+  const genMatch = s.match(/^GEN(\d+)_GRAIN$/);
+  if (genMatch) {
+    return `Gen${genMatch[1]} Grain`;
+  }
+
   const map: Record<string, string> = {
     INCUBATING: 'Colonizing',
     COLONIZING: 'Colonizing',

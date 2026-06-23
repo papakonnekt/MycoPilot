@@ -11,16 +11,9 @@ export type SubstrateType = 'HWFP' | 'CVG' | 'GRAIN' | 'MIXED';
 export type BulkPrepMethod = 'PC' | 'PASTEURIZE' | 'NONE';
 
 export type PCRunType = 'GRAIN' | 'BULK' | 'MICROLAB';
-export type BagType =
-  | 'GEN1_GRAIN'
-  | 'GEN2_GRAIN'
-  | 'BULK_HWFP'
-  | 'BULK_CVG_PC'
-  | 'LC_JAR'
-  | 'AGAR_PLATE'
-  | 'AGAR_SLANT';
+export type BagType = string;
 
-export type BatchStage = 'GEN1_GRAIN' | 'GEN2_GRAIN' | 'BULK_BLOCK' | 'FRUITING' | 'FRIDGE';
+export type BatchStage = string;
 
 export type BatchStatus =
   | 'INCUBATING'
@@ -382,8 +375,7 @@ export interface DemandResult {
   speciesName: string;
   weeklyBlocks: number;
   bulkBlocksNeeded: number;
-  gen2BagsNeeded: number;
-  gen1BagsNeeded: number;
+  genBagsNeeded: number[];
   totalGrainBagsPerWeek: number;
   totalBulkBagsPerWeek: number;
   lcMlPerWeek: number;
@@ -391,10 +383,10 @@ export interface DemandResult {
 }
 
 export interface AdjustedDemand extends DemandResult {
-  gen2BagsFromFridge: number;
-  gen2BagsNewProduction: number;
-  gen2BagsToRestock: number;
-  gen1BagsAdjusted: number;
+  finalGenBagsFromFridge: number;
+  finalGenBagsNewProduction: number;
+  finalGenBagsToRestock: number;
+  genBagsAdjusted: number[];
 }
 
 export interface PCRunDraft {

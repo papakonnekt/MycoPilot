@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { setupSettings } from '../lib/api'
-import type { RecipeIngredient } from '../lib/api'
 import {
   CaretRight, CaretLeft, Check, Info, Plus, Trash,
   Flask, Spinner as SpinnerIcon
@@ -11,6 +10,12 @@ import {
 // Types
 // ─────────────────────────────────────────────────────────────
 
+interface RecipeIngredient {
+  ingredient: string
+  amount?: number
+  unit?: string
+}
+
 interface Recipe {
   name: string
   notes: string
@@ -19,6 +24,7 @@ interface Recipe {
 
 interface SpeciesEntry {
   commonName: string
+  defaultRecipeIdx?: number
   maxGenerations: number
   bulkPrepMethod: string
   lcToGen1DaysMin: number
@@ -36,6 +42,7 @@ interface SpeciesEntry {
   sterilizedGrains: { weightLbs: number; quantity: number }[]
   sterilizedSubstrate: { weightLbs: number; quantity: number }[]
   incubating: { stage: string; quantity: number; colonizationPct: number; speciesIdx: number }[]
+  hasInventoryLogged?: boolean
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -87,14 +94,22 @@ function DayRange({
           type="number" min="0" max="365"
           className="lab-input flex-1 text-center"
           value={min}
-          onChange={e => onMin(parseInt(e.target.value) || 0)}
+          onChange={e => {
+            const v = parseInt(e.target.value) || 0;
+            onMin(v);
+            if (v > max) onMax(v);
+          }}
         />
         <span className="text-[12px] text-surface-muted w-4 text-center">to</span>
         <input
           type="number" min="0" max="365"
           className="lab-input flex-1 text-center"
           value={max}
-          onChange={e => onMax(parseInt(e.target.value) || 0)}
+          onChange={e => {
+            const v = parseInt(e.target.value) || 0;
+            onMax(v);
+            if (v < min) onMin(v);
+          }}
         />
         <span className="text-[12px] text-surface-muted w-8">days</span>
       </div>
@@ -151,13 +166,14 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
       gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
       bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
       fruitingDaysMin: 7, fruitingDaysMax: 14,
-      weeklyTargetBlocks: 5,
-      fridgeTargetBags: 8,
-      fridgeMinBags: 2,
-      startingLcVolumeMl: 100,
+      weeklyTargetBlocks: 0,
+      fridgeTargetBags: 0,
+      fridgeMinBags: 0,
+      startingLcVolumeMl: 0,
       sterilizedGrains: [],
       sterilizedSubstrate: [],
       incubating: [],
+      hasInventoryLogged: false,
     }
   ])
   const [activeSpeciesIdx, setActiveSpeciesIdx] = useState(0)
@@ -183,7 +199,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
   const addRecipe = () => {
     const name = newRecipeName.trim()
     if (!name) return
-    setRecipes(r => [...r, { name, notes: '', ingredients: [{ ingredient: '', percentage: undefined, unit: '% by weight' }] }])
+    setRecipes(r => [...r, { name, notes: '', ingredients: [{ ingredient: '', amount: undefined, unit: '% by weight' }] }])
     setNewRecipeName('')
   }
   const removeRecipe = (idx: number) => setRecipes(r => r.filter((_, i) => i !== idx))
@@ -191,7 +207,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
     setRecipes(r => r.map((rec, i) => (i === idx ? { ...rec, ...patch } : rec)))
   const addIngredient = (rIdx: number) =>
     setRecipes(r => r.map((rec, i) =>
-      i === rIdx ? { ...rec, ingredients: [...rec.ingredients, { ingredient: '', percentage: undefined, unit: '% by weight' }] } : rec
+      i === rIdx ? { ...rec, ingredients: [...rec.ingredients, { ingredient: '', amount: undefined, unit: '% by weight' }] } : rec
     ))
   const removeIngredient = (rIdx: number, iIdx: number) =>
     setRecipes(r => r.map((rec, i) =>
@@ -218,9 +234,10 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
         bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
         fruitingDaysMin: 7, fruitingDaysMax: 14,
-        weeklyTargetBlocks: 5, fridgeTargetBags: 8, fridgeMinBags: 2,
-        startingLcVolumeMl: 100,
+        weeklyTargetBlocks: 0, fridgeTargetBags: 0, fridgeMinBags: 0,
+        startingLcVolumeMl: 0,
         sterilizedGrains: [], sterilizedSubstrate: [], incubating: [],
+        hasInventoryLogged: false,
       }
     ])
     setActiveSpeciesIdx(speciesList.length)
@@ -285,6 +302,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
           sterilizedGrains: s.sterilizedGrains,
           sterilizedSubstrate: s.sterilizedSubstrate,
           incubating: s.incubating,
+          defaultRecipeIdx: s.defaultRecipeIdx,
         })),
       } as any)
       onComplete()
@@ -366,19 +384,19 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     </p>
                     <div className="space-y-3">
                       <FieldGroup label="Grain Cycle (minutes)" hint="Time at pressure for grain bags">
-                        <input type="number" min="0" className="lab-input w-full"
+                        <input type="number" min="1" className="lab-input w-full"
                           value={hardware.grainCycleMins}
-                          onChange={e => setHardware({ ...hardware, grainCycleMins: parseInt(e.target.value) || 0 })} />
+                          onChange={e => setHardware({ ...hardware, grainCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
                       </FieldGroup>
                       <FieldGroup label="Bulk Substrate Cycle (minutes)" hint="Time at pressure for bulk blocks">
-                        <input type="number" min="0" className="lab-input w-full"
+                        <input type="number" min="1" className="lab-input w-full"
                           value={hardware.bulkCycleMins}
-                          onChange={e => setHardware({ ...hardware, bulkCycleMins: parseInt(e.target.value) || 0 })} />
+                          onChange={e => setHardware({ ...hardware, bulkCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
                       </FieldGroup>
                       <FieldGroup label="Micro-Lab Cycle (minutes)" hint="Time for LC jars, agar plates, etc.">
-                        <input type="number" min="0" className="lab-input w-full"
+                        <input type="number" min="1" className="lab-input w-full"
                           value={hardware.microlabCycleMins}
-                          onChange={e => setHardware({ ...hardware, microlabCycleMins: parseInt(e.target.value) || 0 })} />
+                          onChange={e => setHardware({ ...hardware, microlabCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
                       </FieldGroup>
                     </div>
                   </div>
@@ -388,9 +406,9 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                       Daily Budget
                     </p>
                     <FieldGroup label="Available Lab Time / Day (minutes)" hint="How many minutes a day can you spend in the lab? 480 = 8 hrs">
-                      <input type="number" min="30" className="lab-input w-full"
+                      <input type="number" min="1" className="lab-input w-full"
                         value={hardware.dailyAvailableMins}
-                        onChange={e => setHardware({ ...hardware, dailyAvailableMins: parseInt(e.target.value) || 480 })} />
+                        onChange={e => setHardware({ ...hardware, dailyAvailableMins: Math.max(1, parseInt(e.target.value) || 1) })} />
                     </FieldGroup>
                   </div>
                 </div>
@@ -475,11 +493,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                               onChange={e => updateIngredient(rIdx, iIdx, { ingredient: e.target.value })}
                             />
                             <input
-                              type="number" className="lab-input w-16 text-sm text-center" placeholder="%"
-                              value={ing.percentage ?? ''}
-                              onChange={e => updateIngredient(rIdx, iIdx, { percentage: parseFloat(e.target.value) || undefined })}
+                              type="number" className="lab-input w-16 text-sm text-center" placeholder="Amt"
+                              value={ing.amount ?? ''}
+                              onChange={e => updateIngredient(rIdx, iIdx, { amount: parseFloat(e.target.value) || undefined })}
                             />
-                            <span className="text-[12px] text-surface-muted w-6">%</span>
+                            <select className="lab-input text-sm" value={ing.unit ?? '% by weight'} onChange={e => updateIngredient(rIdx, iIdx, { unit: e.target.value })}>
+                              <option value="% by weight">% by weight</option>
+                              <option value="cups">cups</option>
+                              <option value="lbs">lbs</option>
+                              <option value="Liters">Liters</option>
+                              <option value="gallons">gallons</option>
+                            </select>
                             <button onClick={() => removeIngredient(rIdx, iIdx)} className="text-danger p-1 rounded hover:bg-danger-dim transition-colors">
                               <Trash size={13} />
                             </button>
@@ -554,6 +578,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                       <option value="NONE">No sterilization needed</option>
                     </select>
                   </FieldGroup>
+
+                  {recipes.length > 0 && (
+                    <FieldGroup label="Default Substrate Recipe" hint="Which recipe do you use for this species' bulk blocks?">
+                      <select className="lab-input w-full" value={sp.defaultRecipeIdx ?? ''} onChange={e => setSp({ defaultRecipeIdx: e.target.value !== '' ? parseInt(e.target.value) : undefined })}>
+                        <option value="">None (choose per batch)</option>
+                        {recipes.map((r, i) => (
+                          <option key={i} value={i}>{r.name}</option>
+                        ))}
+                      </select>
+                    </FieldGroup>
+                  )}
                 </div>
 
                 <button
@@ -623,33 +658,79 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   ready so you can start bulk blocks on demand.
                 </HelpCard>
 
-                {speciesList.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-                    {speciesList.map((s, idx) => (
-                      <button key={idx} onClick={() => setActiveSpeciesIdx(idx)}
-                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted'}`}>
-                        {s.commonName || `Species ${idx + 1}`}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className="space-y-4">
+                  {speciesList.map((s, idx) => {
+                    if (s.weeklyTargetBlocks === 0 && s.fridgeTargetBags === 0) return null;
+                    return (
+                      <div key={idx} className="lab-card p-5 space-y-5">
+                        <div className="flex justify-between items-center border-b border-surface-border pb-3 mb-2">
+                          <h3 className="font-bold text-surface-text">{s.commonName || `Species ${idx + 1}`}</h3>
+                          <button
+                            onClick={() => {
+                              const newList = [...speciesList];
+                              newList[idx].weeklyTargetBlocks = 0;
+                              newList[idx].fridgeTargetBags = 0;
+                              newList[idx].fridgeMinBags = 0;
+                              setSpeciesList(newList);
+                            }}
+                            className="text-danger p-1.5 rounded hover:bg-danger-dim transition-colors flex items-center gap-1 text-[12px] font-semibold"
+                          >
+                            <Trash size={14} /> Remove Target
+                          </button>
+                        </div>
+                        <FieldGroup label="Weekly Target — Fruiting Blocks" hint="How many bulk blocks do you want to harvest per week?">
+                          <input type="number" min="0" className="lab-input w-full"
+                            value={s.weeklyTargetBlocks}
+                            onChange={e => {
+                              const newList = [...speciesList];
+                              newList[idx].weeklyTargetBlocks = parseInt(e.target.value) || 0;
+                              setSpeciesList(newList);
+                            }} />
+                        </FieldGroup>
+                        <FieldGroup label="Fridge Target (Grain Bags)" hint="Ideal number of fully colonized bags resting in the fridge">
+                          <input type="number" min="0" className="lab-input w-full"
+                            value={s.fridgeTargetBags}
+                            onChange={e => {
+                              const newList = [...speciesList];
+                              newList[idx].fridgeTargetBags = parseInt(e.target.value) || 0;
+                              setSpeciesList(newList);
+                            }} />
+                        </FieldGroup>
+                        <FieldGroup label="Fridge Minimum (Grain Bags)" hint="If the fridge drops below this, the app flags an urgent shortage">
+                          <input type="number" min="0" className="lab-input w-full"
+                            value={s.fridgeMinBags}
+                            onChange={e => {
+                              const newList = [...speciesList];
+                              newList[idx].fridgeMinBags = parseInt(e.target.value) || 0;
+                              setSpeciesList(newList);
+                            }} />
+                        </FieldGroup>
+                      </div>
+                    );
+                  })}
+                </div>
 
-                <div className="lab-card p-5 space-y-5">
-                  <FieldGroup label="Weekly Target — Fruiting Blocks" hint="How many bulk blocks do you want to harvest per week?">
-                    <input type="number" min="0" className="lab-input w-full"
-                      value={sp.weeklyTargetBlocks}
-                      onChange={e => setSp({ weeklyTargetBlocks: parseInt(e.target.value) || 0 })} />
-                  </FieldGroup>
-                  <FieldGroup label="Fridge Target (Grain Bags)" hint="Ideal number of fully colonized bags resting in the fridge">
-                    <input type="number" min="0" className="lab-input w-full"
-                      value={sp.fridgeTargetBags}
-                      onChange={e => setSp({ fridgeTargetBags: parseInt(e.target.value) || 0 })} />
-                  </FieldGroup>
-                  <FieldGroup label="Fridge Minimum (Grain Bags)" hint="If the fridge drops below this, the app flags an urgent shortage">
-                    <input type="number" min="0" className="lab-input w-full"
-                      value={sp.fridgeMinBags}
-                      onChange={e => setSp({ fridgeMinBags: parseInt(e.target.value) || 0 })} />
-                  </FieldGroup>
+                <div className="lab-card p-4">
+                  <p className="text-[13px] font-semibold text-surface-muted mb-2">Add Target for Species</p>
+                  <select
+                    className="lab-input w-full"
+                    value=""
+                    onChange={e => {
+                      if (!e.target.value) return;
+                      const idx = parseInt(e.target.value);
+                      const newList = [...speciesList];
+                      newList[idx].weeklyTargetBlocks = 5;
+                      newList[idx].fridgeTargetBags = 8;
+                      newList[idx].fridgeMinBags = 2;
+                      setSpeciesList(newList);
+                    }}
+                  >
+                    <option value="">+ Select Species...</option>
+                    {speciesList.map((s, idx) => {
+                      if (s.weeklyTargetBlocks > 0 || s.fridgeTargetBags > 0) return null;
+                      return <option key={idx} value={idx}>{s.commonName || `Species ${idx + 1}`}</option>
+                    })}
+                  </select>
                 </div>
               </div>
             )}
@@ -662,110 +743,176 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   This is optional — skip if you're starting from scratch.
                 </HelpCard>
 
-                {speciesList.length > 1 && (
-                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-                    {speciesList.map((s, idx) => (
-                      <button key={idx} onClick={() => setActiveSpeciesIdx(idx)}
-                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted'}`}>
-                        {s.commonName || `Species ${idx + 1}`}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                <div className="space-y-3">
-                  {/* LC */}
-                  <div className="lab-card p-4">
-                    <FieldGroup label={`Liquid Culture for ${sp.commonName || 'this species'} (mL)`} hint="1 syringe ≈ 10 mL">
-                      <input type="number" min="0" className="lab-input w-full"
-                        value={sp.startingLcVolumeMl}
-                        onChange={e => setSp({ startingLcVolumeMl: parseInt(e.target.value) || 0 })} />
-                    </FieldGroup>
-                  </div>
-
-                  {/* Grain bags */}
-                  <div className="lab-card p-4">
-                    <div className="flex justify-between items-center mb-3">
-                      <p className="text-[13px] font-semibold text-surface-muted">Sterilized Grain Bags (ready to inoculate)</p>
-                      <button
-                        onClick={() => setSp({ sterilizedGrains: [...sp.sterilizedGrains, { weightLbs: 5, quantity: 1 }] })}
-                        className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
-                      >
-                        <Plus size={12} weight="bold" /> Add
-                      </button>
-                    </div>
-                    {sp.sterilizedGrains.length === 0 && (
-                      <p className="text-[12px] text-surface-muted">None. Skip or add above.</p>
-                    )}
-                    <div className="space-y-2">
-                      {sp.sterilizedGrains.map((item, idx) => (
-                        <div key={idx} className="flex gap-2 items-center">
-                          <input type="number" className="lab-input w-20 text-center" placeholder="Qty"
-                            value={item.quantity}
-                            onChange={e => {
-                              const arr = [...sp.sterilizedGrains]
-                              arr[idx] = { ...arr[idx], quantity: parseInt(e.target.value) || 0 }
-                              setSp({ sterilizedGrains: arr })
-                            }} />
-                          <span className="text-[12px] text-surface-muted">bags @</span>
-                          <input type="number" className="lab-input w-20 text-center" placeholder="Lbs"
-                            value={item.weightLbs}
-                            onChange={e => {
-                              const arr = [...sp.sterilizedGrains]
-                              arr[idx] = { ...arr[idx], weightLbs: parseFloat(e.target.value) || 0 }
-                              setSp({ sterilizedGrains: arr })
-                            }} />
-                          <span className="text-[12px] text-surface-muted">lbs</span>
-                          <button onClick={() => setSp({ sterilizedGrains: sp.sterilizedGrains.filter((_, i) => i !== idx) })}
-                            className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
-                            <Trash size={14} />
+                <div className="space-y-4">
+                  {speciesList.map((sp, idx) => {
+                    if (!sp.hasInventoryLogged) return null;
+                    return (
+                      <div key={idx} className="lab-card p-5 space-y-4">
+                        <div className="flex justify-between items-center border-b border-surface-border pb-3">
+                          <h3 className="font-bold text-surface-text">{sp.commonName || `Species ${idx + 1}`}</h3>
+                          <button
+                            onClick={() => {
+                              const newList = [...speciesList];
+                              newList[idx].hasInventoryLogged = false;
+                              newList[idx].startingLcVolumeMl = 0;
+                              newList[idx].sterilizedGrains = [];
+                              newList[idx].sterilizedSubstrate = [];
+                              setSpeciesList(newList);
+                            }}
+                            className="text-danger p-1.5 rounded hover:bg-danger-dim transition-colors flex items-center gap-1 text-[12px] font-semibold"
+                          >
+                            <Trash size={14} /> Clear Inventory
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* Substrate blocks */}
-                  <div className="lab-card p-4">
-                    <div className="flex justify-between items-center mb-3">
-                      <p className="text-[13px] font-semibold text-surface-muted">Sterilized Substrate Blocks (ready to use)</p>
-                      <button
-                        onClick={() => setSp({ sterilizedSubstrate: [...sp.sterilizedSubstrate, { weightLbs: 5, quantity: 1 }] })}
-                        className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
-                      >
-                        <Plus size={12} weight="bold" /> Add
-                      </button>
-                    </div>
-                    {sp.sterilizedSubstrate.length === 0 && (
-                      <p className="text-[12px] text-surface-muted">None. Skip or add above.</p>
-                    )}
-                    <div className="space-y-2">
-                      {sp.sterilizedSubstrate.map((item, idx) => (
-                        <div key={idx} className="flex gap-2 items-center">
-                          <input type="number" className="lab-input w-20 text-center" placeholder="Qty"
-                            value={item.quantity}
-                            onChange={e => {
-                              const arr = [...sp.sterilizedSubstrate]
-                              arr[idx] = { ...arr[idx], quantity: parseInt(e.target.value) || 0 }
-                              setSp({ sterilizedSubstrate: arr })
-                            }} />
-                          <span className="text-[12px] text-surface-muted">blocks @</span>
-                          <input type="number" className="lab-input w-20 text-center" placeholder="Lbs"
-                            value={item.weightLbs}
-                            onChange={e => {
-                              const arr = [...sp.sterilizedSubstrate]
-                              arr[idx] = { ...arr[idx], weightLbs: parseFloat(e.target.value) || 0 }
-                              setSp({ sterilizedSubstrate: arr })
-                            }} />
-                          <span className="text-[12px] text-surface-muted">lbs</span>
-                          <button onClick={() => setSp({ sterilizedSubstrate: sp.sterilizedSubstrate.filter((_, i) => i !== idx) })}
-                            className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
-                            <Trash size={14} />
-                          </button>
+                        {/* LC */}
+                        <div>
+                          <FieldGroup label={`Liquid Culture (mL)`} hint="1 syringe ≈ 10 mL">
+                            <input type="number" min="0" className="lab-input w-full"
+                              value={sp.startingLcVolumeMl}
+                              onChange={e => {
+                                const newList = [...speciesList];
+                                newList[idx].startingLcVolumeMl = parseInt(e.target.value) || 0;
+                                setSpeciesList(newList);
+                              }} />
+                          </FieldGroup>
                         </div>
-                      ))}
-                    </div>
-                  </div>
+
+                        {/* Grain bags */}
+                        <div className="bg-surface-900 rounded-lg p-3 border border-surface-border">
+                          <div className="flex justify-between items-center mb-3">
+                            <p className="text-[13px] font-semibold text-surface-muted">Sterilized Grain Bags</p>
+                            <button
+                              onClick={() => {
+                                const newList = [...speciesList];
+                                newList[idx].sterilizedGrains.push({ weightLbs: 5, quantity: 1 });
+                                setSpeciesList(newList);
+                              }}
+                              className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
+                            >
+                              <Plus size={12} weight="bold" /> Add
+                            </button>
+                          </div>
+                          {sp.sterilizedGrains.length === 0 && (
+                            <p className="text-[12px] text-surface-muted mb-2">None.</p>
+                          )}
+                          <div className="space-y-2">
+                            {sp.sterilizedGrains.map((item, itemIdx) => (
+                              <div key={itemIdx} className="flex gap-2 items-center">
+                                <div className="flex items-center bg-surface-800 rounded-lg border border-surface-border overflow-hidden">
+                                  <button onClick={() => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedGrains[itemIdx].quantity = Math.max(1, item.quantity - 1);
+                                    setSpeciesList(newList);
+                                  }} className="px-3 py-1 hover:bg-surface-700 font-bold">-</button>
+                                  <input type="number" className="bg-transparent w-10 text-center font-bold text-[13px] outline-none"
+                                    value={item.quantity} readOnly />
+                                  <button onClick={() => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedGrains[itemIdx].quantity = item.quantity + 1;
+                                    setSpeciesList(newList);
+                                  }} className="px-3 py-1 hover:bg-surface-700 font-bold">+</button>
+                                </div>
+                                <span className="text-[12px] text-surface-muted">bags @</span>
+                                <input type="number" className="lab-input w-16 text-center" placeholder="Lbs"
+                                  value={item.weightLbs}
+                                  onChange={e => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedGrains[itemIdx].weightLbs = parseFloat(e.target.value) || 0;
+                                    setSpeciesList(newList);
+                                  }} />
+                                <span className="text-[12px] text-surface-muted">lbs</span>
+                                <button onClick={() => {
+                                  const newList = [...speciesList];
+                                  newList[idx].sterilizedGrains = sp.sterilizedGrains.filter((_, i) => i !== itemIdx);
+                                  setSpeciesList(newList);
+                                }} className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
+                                  <Trash size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Substrate blocks */}
+                        <div className="bg-surface-900 rounded-lg p-3 border border-surface-border">
+                          <div className="flex justify-between items-center mb-3">
+                            <p className="text-[13px] font-semibold text-surface-muted">Sterilized Substrate Blocks</p>
+                            <button
+                              onClick={() => {
+                                const newList = [...speciesList];
+                                newList[idx].sterilizedSubstrate.push({ weightLbs: 5, quantity: 1 });
+                                setSpeciesList(newList);
+                              }}
+                              className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
+                            >
+                              <Plus size={12} weight="bold" /> Add
+                            </button>
+                          </div>
+                          {sp.sterilizedSubstrate.length === 0 && (
+                            <p className="text-[12px] text-surface-muted mb-2">None.</p>
+                          )}
+                          <div className="space-y-2">
+                            {sp.sterilizedSubstrate.map((item, itemIdx) => (
+                              <div key={itemIdx} className="flex gap-2 items-center">
+                                <div className="flex items-center bg-surface-800 rounded-lg border border-surface-border overflow-hidden">
+                                  <button onClick={() => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedSubstrate[itemIdx].quantity = Math.max(1, item.quantity - 1);
+                                    setSpeciesList(newList);
+                                  }} className="px-3 py-1 hover:bg-surface-700 font-bold">-</button>
+                                  <input type="number" className="bg-transparent w-10 text-center font-bold text-[13px] outline-none"
+                                    value={item.quantity} readOnly />
+                                  <button onClick={() => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedSubstrate[itemIdx].quantity = item.quantity + 1;
+                                    setSpeciesList(newList);
+                                  }} className="px-3 py-1 hover:bg-surface-700 font-bold">+</button>
+                                </div>
+                                <span className="text-[12px] text-surface-muted">blocks @</span>
+                                <input type="number" className="lab-input w-16 text-center" placeholder="Lbs"
+                                  value={item.weightLbs}
+                                  onChange={e => {
+                                    const newList = [...speciesList];
+                                    newList[idx].sterilizedSubstrate[itemIdx].weightLbs = parseFloat(e.target.value) || 0;
+                                    setSpeciesList(newList);
+                                  }} />
+                                <span className="text-[12px] text-surface-muted">lbs</span>
+                                <button onClick={() => {
+                                  const newList = [...speciesList];
+                                  newList[idx].sterilizedSubstrate = sp.sterilizedSubstrate.filter((_, i) => i !== itemIdx);
+                                  setSpeciesList(newList);
+                                }} className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
+                                  <Trash size={14} />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="lab-card p-4">
+                  <p className="text-[13px] font-semibold text-surface-muted mb-2">Log Inventory for Species</p>
+                  <select
+                    className="lab-input w-full"
+                    value=""
+                    onChange={e => {
+                      if (!e.target.value) return;
+                      const idx = parseInt(e.target.value);
+                      const newList = [...speciesList];
+                      newList[idx].hasInventoryLogged = true;
+                      setSpeciesList(newList);
+                    }}
+                  >
+                    <option value="">+ Select Species...</option>
+                    {speciesList.map((s, idx) => {
+                      if (s.hasInventoryLogged) return null;
+                      return <option key={idx} value={idx}>{s.commonName || `Species ${idx + 1}`}</option>
+                    })}
+                  </select>
                 </div>
               </div>
             )}
@@ -834,8 +981,12 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             <select className="lab-input w-full text-sm"
                               value={item.stage}
                               onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, stage: e.target.value } : it))}>
-                              <option value="GEN1_GRAIN">Gen 1 Grain (from LC)</option>
-                              <option value="GEN2_GRAIN">Gen 2 Grain (G2G)</option>
+                              {speciesList[item.speciesIdx]?.maxGenerations > 0 && (
+                                <option value="GEN1_GRAIN">Gen 1 Grain (from LC)</option>
+                              )}
+                              {Array.from({ length: Math.max(0, (speciesList[item.speciesIdx]?.maxGenerations || 1) - 1) }).map((_, gIdx) => (
+                                <option key={gIdx} value={`GEN${gIdx + 2}_GRAIN`}>Gen {gIdx + 2} Grain (G2G)</option>
+                              ))}
                               <option value="BULK_BLOCK">Bulk Block</option>
                             </select>
                           </div>

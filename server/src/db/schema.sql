@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS species (
   lc_volume_ml_available  REAL NOT NULL DEFAULT 0,
   lc_injection_volume_ml  REAL NOT NULL DEFAULT 10.0,
   lc_restock_threshold_ml REAL NOT NULL DEFAULT 20.0,
+  default_recipe_id       INTEGER REFERENCES substrate_recipe(id),
   notes                   TEXT,
   is_active               INTEGER NOT NULL DEFAULT 1,
   created_at              TEXT NOT NULL DEFAULT (datetime('now'))
@@ -155,7 +156,7 @@ CREATE TABLE IF NOT EXISTS recipe_ingredient (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   recipe_id     INTEGER NOT NULL REFERENCES substrate_recipe(id) ON DELETE CASCADE,
   ingredient    TEXT    NOT NULL,   -- e.g. "HWFP", "Wheat Bran", "Soy Hulls"
-  percentage    REAL,               -- % by dry weight
+  amount        REAL,               -- generic amount (replaces percentage)
   unit          TEXT,               -- e.g. "% by weight", "cups per bag"
   notes         TEXT
 );
@@ -188,12 +189,7 @@ CREATE TABLE IF NOT EXISTS pc_run_slot (
   pc_run_id   INTEGER NOT NULL REFERENCES pc_run(id) ON DELETE CASCADE,
   species_id  INTEGER REFERENCES species(id),
   -- bag_type further distinguishes what's in each slot
-  bag_type    TEXT    NOT NULL
-              CHECK(bag_type IN (
-                'GEN1_GRAIN','GEN2_GRAIN',
-                'BULK_HWFP','BULK_CVG_PC',
-                'LC_JAR','AGAR_PLATE','AGAR_SLANT'
-              )),
+  bag_type    TEXT    NOT NULL,
   quantity    INTEGER NOT NULL DEFAULT 1
 );
 
@@ -206,11 +202,7 @@ CREATE TABLE IF NOT EXISTS batch (
   source_pc_run_id  INTEGER REFERENCES pc_run(id),        -- Which PC run
   source_genetic_id INTEGER REFERENCES genetic_material(id), -- Which LC
   recipe_id         INTEGER REFERENCES substrate_recipe(id),  -- Substrate recipe used
-  stage             TEXT    NOT NULL
-                    CHECK(stage IN (
-                      'GEN1_GRAIN','GEN2_GRAIN','BULK_BLOCK',
-                      'FRUITING','FRIDGE'
-                    )),
+  stage             TEXT    NOT NULL,
   status            TEXT    NOT NULL DEFAULT 'INCUBATING'
                     CHECK(status IN (
                       'INCUBATING','COLONIZED','IN_FRIDGE','FRUITING',

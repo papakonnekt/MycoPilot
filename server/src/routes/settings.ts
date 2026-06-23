@@ -68,22 +68,26 @@ router.post('/setup', (req: Request, res: Response) => {
         INSERT OR IGNORE INTO substrate_recipe (name, notes) VALUES (?, ?)
       `);
       const insertIngredient = db.prepare(`
-        INSERT INTO recipe_ingredient (recipe_id, ingredient, percentage, unit)
+        INSERT INTO recipe_ingredient (recipe_id, ingredient, amount, unit)
         VALUES (?, ?, ?, ?)
       `);
 
+      const recipeMap = new Map<number, number>();
+      let rIdx = 0;
       for (const recipe of (s.recipes ?? [])) {
         const rr = insertRecipe.run(recipe.name, recipe.notes ?? null);
-        const recipeId = rr.lastInsertRowid;
+        const recipeId = rr.lastInsertRowid as number;
+        recipeMap.set(rIdx, recipeId);
         for (const ing of (recipe.ingredients ?? [])) {
-          insertIngredient.run(recipeId, ing.ingredient, ing.percentage ?? null, ing.unit ?? null);
+          insertIngredient.run(recipeId, ing.ingredient, ing.amount ?? null, ing.unit ?? null);
         }
+        rIdx++;
       }
 
       // Prepare species statements
       const insertSpecies = db.prepare(`
-        INSERT INTO species (common_name, substrate_type, bulk_prep_method, lc_volume_ml_available)
-        VALUES (@commonName, 'CUSTOM', @bulkPrepMethod, @lcVolumeMl)
+        INSERT INTO species (common_name, substrate_type, bulk_prep_method, lc_volume_ml_available, default_recipe_id)
+        VALUES (@commonName, 'CUSTOM', @bulkPrepMethod, @lcVolumeMl, @defaultRecipeId)
       `);
       
       const insertProfile = db.prepare(`
@@ -128,6 +132,7 @@ router.post('/setup', (req: Request, res: Response) => {
           commonName: sp.commonName,
           bulkPrepMethod: sp.bulkPrepMethod || 'PC',
           lcVolumeMl: sp.startingLcVolumeMl || 0,
+          defaultRecipeId: sp.defaultRecipeIdx !== undefined ? recipeMap.get(sp.defaultRecipeIdx) : null,
         });
         const speciesId = result.lastInsertRowid;
         

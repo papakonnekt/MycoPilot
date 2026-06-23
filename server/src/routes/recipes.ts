@@ -12,7 +12,7 @@ router.get('/', (_req: Request, res: Response) => {
         (SELECT json_group_array(json_object(
           'id', ri.id,
           'ingredient', ri.ingredient,
-          'percentage', ri.percentage,
+          'amount', ri.amount,
           'unit', ri.unit,
           'notes', ri.notes
         )) FROM recipe_ingredient ri WHERE ri.recipe_id = r.id)
@@ -48,7 +48,7 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 // ── POST /api/recipes ─────────────────────────────────────────
-// Body: { name, notes?, ingredients: [{ ingredient, percentage?, unit?, notes? }] }
+// Body: { name, notes?, ingredients: [{ ingredient, amount?, unit?, notes? }] }
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
   const { name, notes, ingredients = [] } = req.body;
@@ -65,7 +65,7 @@ router.post('/', (req: Request, res: Response) => {
       const recipeId = r.lastInsertRowid;
 
       const insertIngredient = db.prepare(`
-        INSERT INTO recipe_ingredient (recipe_id, ingredient, percentage, unit, notes)
+        INSERT INTO recipe_ingredient (recipe_id, ingredient, amount, unit, notes)
         VALUES (?, ?, ?, ?, ?)
       `);
 
@@ -73,7 +73,7 @@ router.post('/', (req: Request, res: Response) => {
         insertIngredient.run(
           recipeId,
           ing.ingredient,
-          ing.percentage ?? null,
+          ing.amount ?? null,
           ing.unit ?? null,
           ing.notes ?? null
         );
@@ -102,11 +102,11 @@ router.put('/:id', (req: Request, res: Response) => {
       db.prepare(`DELETE FROM recipe_ingredient WHERE recipe_id = ?`).run(id);
 
       const insertIngredient = db.prepare(`
-        INSERT INTO recipe_ingredient (recipe_id, ingredient, percentage, unit, notes)
+        INSERT INTO recipe_ingredient (recipe_id, ingredient, amount, unit, notes)
         VALUES (?, ?, ?, ?, ?)
       `);
       for (const ing of ingredients) {
-        insertIngredient.run(id, ing.ingredient, ing.percentage ?? null, ing.unit ?? null, ing.notes ?? null);
+        insertIngredient.run(id, ing.ingredient, ing.amount ?? null, ing.unit ?? null, ing.notes ?? null);
       }
     })();
 

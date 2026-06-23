@@ -372,7 +372,7 @@ export function setupSettings(
     recipes?: Array<{
       name: string,
       notes?: string,
-      ingredients?: Array<{ ingredient: string, percentage?: number, unit?: string }>
+      ingredients?: Array<{ ingredient: string, amount?: number, unit?: string }>
     }>,
     species: Array<{
       commonName: string,
@@ -758,7 +758,7 @@ export function updateFridgeItem(id: number | string, data: any): Promise<void> 
 export interface RecipeIngredient {
   id?: number
   ingredient: string
-  percentage?: number | null
+  amount?: number | null
   unit?: string | null
   notes?: string | null
 }

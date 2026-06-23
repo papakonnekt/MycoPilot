@@ -1,4 +1,4 @@
-import {
+﻿import {
   AdjustedDemand,
   BatchStage,
   BatchStatus,
@@ -22,9 +22,9 @@ import {
   MaterialUsageRecipe,
 } from '../../../shared/types';
 
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // UTILITIES
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 function addDays(date: Date, days: number): Date {
   const d = new Date(date);
@@ -84,9 +84,9 @@ function estimateMins(taskType: TaskType, hw: HardwareSettings, quantity = 1): n
   }
 }
 
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // SCHEDULER ENGINE
-// ─────────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 export class SchedulerEngine {
   private seqCounters: Map<string, number> = new Map();
@@ -97,7 +97,7 @@ export class SchedulerEngine {
     return n;
   }
 
-  // ── PUBLIC ENTRY POINT ────────────────────────────────────
+  // ------ PUBLIC ENTRY POINT ------------------------------------------------------------------------------------------------------------
 
   run(params: {
     today: Date;
@@ -126,7 +126,7 @@ export class SchedulerEngine {
     // Build mutable 28-day calendar
     const calendar = this.buildCalendar(params.today, params.hardware, params.existingTasks);
 
-    // ── STEP 1: Demand calculation ────────────────────────────
+    // ------ STEP 1: Demand calculation ------------------------------------------------------------------------------------
     const demands = params.weeklyTargets
       .filter(t => t.isActive)
       .map(target => {
@@ -137,40 +137,40 @@ export class SchedulerEngine {
       })
       .filter((d): d is DemandResult => d !== null);
 
-    // ── STEP 2: Apply fridge reduction ───────────────────────
+    // ------ STEP 2: Apply fridge reduction ---------------------------------------------------------------------
     const adjustedDemands = demands.map(d =>
       this.applyFridgeReduction(d, params.fridgeSummary, params.fridgeThresh)
     );
 
-    // ── STEP 3: Generate production chain tasks ───────────────
+    // ------ STEP 3: Generate production chain tasks ---------------------------------------------
     for (const demand of adjustedDemands) {
       const species = params.speciesMap.get(demand.speciesId)!;
       const speciesCode = this.getSpeciesCode(species.commonName);
       this.generateProductionChain(demand, species, speciesCode, params.today, calendar, params.hardware, output);
     }
 
-    // ── STEP 4: Pack PC runs across calendar ─────────────────
+    // ------ STEP 4: Pack PC runs across calendar ---------------------------------------------------
     this.packPCRuns(calendar, params.hardware, output);
 
-    // ── STEP 5: Tick active batches (colonization timers) ─────
+    // ------ STEP 5: Tick active batches (colonization timers) ---------------
     this.tickActiveBatches(params.activeBatches, params.today, calendar, params.hardware, output);
 
-    // ── STEP 6: LC depletion checks ──────────────────────────
+    // ------ STEP 6: LC depletion checks ------------------------------------------------------------------------------
     this.reconcileLC(output.tasks, params.speciesMap, output);
 
-    // ── STEP 7: Raw material depletion ────────────────────────
+    // ------ STEP 7: Raw material depletion ------------------------------------------------------------------------
     this.reconcileInventory(output.tasks, params.rawMaterials, params.usageRecipes, output);
 
-    // ── STEP 8: Scan for constraint violations ────────────────
+    // ------ STEP 8: Scan for constraint violations ------------------------------------------------
     this.detectViolations(calendar, params.hardware, output);
 
-    // ── STEP 9: Flatten calendar to ordered task list ─────────
+    // ------ STEP 9: Flatten calendar to ordered task list ---------------------------
     output.tasks = this.flattenCalendar(calendar);
 
     return output;
   }
 
-  // ── STEP 1: DEMAND CALCULATOR ─────────────────────────────
+  // ------ STEP 1: DEMAND CALCULATOR ---------------------------------------------------------------------------------------
 
   private computeDemand(
     target: WeeklyTarget,
@@ -178,29 +178,34 @@ export class SchedulerEngine {
     profile: SpeciesProfile
   ): DemandResult {
     const T = target.targetBlocksPerWk;
+    const maxGen = profile.maxGenerations || 2;
 
-    // 1 Gen2 bag → 1 bulk block (the spawn pct affects weight ratio, not bag count)
-    const bulkBlocksNeeded  = T;
-    const gen2BagsNeeded    = T;
-    const gen1BagsNeeded    = Math.ceil(gen2BagsNeeded / profile.gen1ToGen2Ratio);
+    const bulkBlocksNeeded = T;
+    
+    // Calculate backwards from final generation
+    const genBagsNeeded = new Array(maxGen).fill(0);
+    genBagsNeeded[maxGen - 1] = T; // Highest gen maps 1:1 with bulk blocks
 
-    // Grain PC demand: Gen1 bags + Gen2 bags (Q1: grouped by bag-type, not species)
-    const totalGrainBagsPerWeek = gen1BagsNeeded + gen2BagsNeeded;
+    for (let i = maxGen - 2; i >= 0; i--) {
+      // ratio is gen1_to_gen2_ratio (implies genN to genN+1 ratio)
+      genBagsNeeded[i] = Math.ceil(genBagsNeeded[i + 1] / profile.gen1ToGen2Ratio);
+    }
 
-    // Bulk PC demand: only HWFP species use PC for bulk (CVG=pasteurize, GRAIN=none)
+    const totalGrainBagsPerWeek = genBagsNeeded.reduce((sum, n) => sum + n, 0);
+
+    // Bulk PC demand: only HWFP species use PC for bulk
     const totalBulkBagsPerWeek =
       species.bulkPrepMethod === 'PC' ? bulkBlocksNeeded : 0;
 
-    // LC consumption
-    const lcMlPerWeek = gen1BagsNeeded * species.lcInjectionVolumeMl;
+    // LC consumption (Gen 1)
+    const lcMlPerWeek = genBagsNeeded[0] * species.lcInjectionVolumeMl;
 
     return {
       speciesId: target.speciesId,
       speciesName: species.commonName,
       weeklyBlocks: T,
       bulkBlocksNeeded,
-      gen2BagsNeeded,
-      gen1BagsNeeded,
+      genBagsNeeded,
       totalGrainBagsPerWeek,
       totalBulkBagsPerWeek,
       lcMlPerWeek,
@@ -208,7 +213,7 @@ export class SchedulerEngine {
     };
   }
 
-  // ── STEP 2: FRIDGE REDUCTION ──────────────────────────────
+  // ------ STEP 2: FRIDGE REDUCTION ------------------------------------------------------------------------------------------
 
   private applyFridgeReduction(
     demand: DemandResult,
@@ -222,7 +227,8 @@ export class SchedulerEngine {
     const minThresh  = threshold?.minGen2Bags ?? 2;
     const restockTo  = threshold?.targetGen2Bags ?? 5;
 
-    const weeklyNeed     = demand.gen2BagsNeeded;
+    const maxGen = demand.profile.maxGenerations || 2;
+    const weeklyNeed     = demand.genBagsNeeded[maxGen - 1];
     const pullFromFridge = Math.min(available, weeklyNeed);
     const produceNew     = weeklyNeed - pullFromFridge;
 
@@ -231,21 +237,24 @@ export class SchedulerEngine {
     const needsRestock  = postPullLevel < minThresh;
     const restockQty    = needsRestock ? Math.max(0, restockTo - postPullLevel) : 0;
 
-    // New Gen1 bags needed for new production + fridge restock
-    const gen1BagsAdjusted = Math.ceil(
-      (produceNew + restockQty) / demand.profile.gen1ToGen2Ratio
-    );
+    // New Gen bags needed for new production + fridge restock
+    const genBagsAdjusted = [...demand.genBagsNeeded];
+    genBagsAdjusted[maxGen - 1] = produceNew + restockQty;
+
+    for (let i = maxGen - 2; i >= 0; i--) {
+      genBagsAdjusted[i] = Math.ceil(genBagsAdjusted[i + 1] / demand.profile.gen1ToGen2Ratio);
+    }
 
     return {
       ...demand,
-      gen2BagsFromFridge: pullFromFridge,
-      gen2BagsNewProduction: produceNew,
-      gen2BagsToRestock: restockQty,
-      gen1BagsAdjusted,
+      finalGenBagsFromFridge: pullFromFridge,
+      finalGenBagsNewProduction: produceNew,
+      finalGenBagsToRestock: restockQty,
+      genBagsAdjusted,
     };
   }
 
-  // ── STEP 3: PRODUCTION CHAIN GENERATOR ───────────────────
+  // ------ STEP 3: PRODUCTION CHAIN GENERATOR ---------------------------------------------------------
 
   private generateProductionChain(
     demand: AdjustedDemand,
@@ -257,107 +266,94 @@ export class SchedulerEngine {
     output: SchedulerOutput
   ): void {
     const p = demand.profile;
+    const maxGen = p.maxGenerations || 2;
 
-    // Working backward from a target harvest at the end of the 28-day horizon:
-    // We schedule tasks at the correct biological offset from today.
-    //
-    // The approach: figure out WHEN each stage needs to START,
-    // counting backward from the expected harvest window.
-
-    // Harvest target: end of horizon
     const harvestTarget = addDays(today, hw.schedulingHorizonDays);
-
-    // ── HARVEST tasks ────────────────────────────────────────
-    // For blocks currently fruiting (handled by tickActiveBatches)
-    // New production chain for the horizon:
-
-    // Bulk inoculation date: harvest minus fruiting period
     const bulkInocDate = addDays(harvestTarget, -(p.fruitingDaysMax + p.bulkColonizationDaysMax));
 
-    // G2G transfer date: bulk inoculation minus gen2 colonization
-    const g2gDate = addDays(bulkInocDate, -(p.gen2ColonizationDaysMax));
+    // Calculate dates for each generation
+    const inocDates = new Array(maxGen);
+    const pcDates = new Array(maxGen);
 
-    // Gen1 inoculation date: G2G minus gen1 colonization
-    const gen1InocDate = addDays(g2gDate, -(p.lcToGen1DaysMax));
+    // Final generation
+    inocDates[maxGen - 1] = addDays(bulkInocDate, -(p.gen2ColonizationDaysMax));
+    pcDates[maxGen - 1] = addDays(inocDates[maxGen - 1], -1);
 
-    // PC_GRAIN runs: day before each inoculation step (bags need cooling)
-    const pcGrainForGen1Date = addDays(gen1InocDate, -1);
-    const pcGrainForGen2Date = addDays(g2gDate, -1); // Sterilize Gen2 grain before G2G
+    // Middle generations (N-1 down to 2)
+    for (let i = maxGen - 2; i >= 1; i--) {
+        inocDates[i] = addDays(inocDates[i + 1], -(p.gen2ColonizationDaysMax));
+        pcDates[i] = addDays(inocDates[i], -1);
+    }
 
-    // ── Only schedule if new production is needed ─────────────
-    if (demand.gen2BagsNewProduction > 0 || demand.gen2BagsToRestock > 0) {
+    // First generation (LC to Gen1)
+    if (maxGen > 1) {
+        inocDates[0] = addDays(inocDates[1], -(p.lcToGen1DaysMax));
+    } else {
+        inocDates[0] = addDays(bulkInocDate, -(p.lcToGen1DaysMax));
+    }
+    pcDates[0] = addDays(inocDates[0], -1);
 
-      // PC_RUN_GRAIN for Gen1 bags
-      if (demand.gen1BagsAdjusted > 0 && this.isInHorizon(pcGrainForGen1Date, today, hw)) {
+    // ------ Schedule Grain Generations ---------------------------------------
+    for (let i = 0; i < maxGen; i++) {
+      const bagsToMake = demand.genBagsAdjusted[i];
+      if (bagsToMake <= 0) continue;
+
+      const genNum = i + 1;
+      
+      // PC_RUN_GRAIN
+      if (this.isInHorizon(pcDates[i], today, hw)) {
         this.addPCRequest(calendar, {
           runType: 'GRAIN',
-          date: pcGrainForGen1Date,
+          date: pcDates[i],
           speciesId: demand.speciesId,
           speciesCode,
-          bagType: 'GEN1_GRAIN',
-          bagCount: demand.gen1BagsAdjusted,
-          deadlineDate: gen1InocDate,
-          batchId: generateBatchId(speciesCode, 'G1', pcGrainForGen1Date, this.nextSeq(`${speciesCode}-G1`)),
+          bagType: `GEN${genNum}_GRAIN`,
+          bagCount: bagsToMake,
+          deadlineDate: inocDates[i],
+          batchId: generateBatchId(speciesCode, `G${genNum}`, pcDates[i], this.nextSeq(`${speciesCode}-G${genNum}`)),
         });
       }
 
-      // INOCULATE_GEN1 task
-      if (this.isInHorizon(gen1InocDate, today, hw)) {
-        this.addTask(calendar, gen1InocDate, {
-          taskType: 'INOCULATE_GEN1',
-          title: `Inoculate Gen1 Grain — ${demand.gen1BagsAdjusted}× ${demand.speciesName}`,
-          speciesId: demand.speciesId,
-          estimatedMins: estimateMins('INOCULATE_GEN1', hw, demand.gen1BagsAdjusted),
-          status: 'PENDING',
-          notes: `Scheduled to meet weekly target (${demand.weeklyBlocks} blocks) + fridge restock (${demand.gen2BagsToRestock} bags). Requires ${demand.gen1BagsAdjusted} Gen1 bags.`,
-        }, hw, output);
-      }
-
-      // PC_RUN_GRAIN for Gen2 bags (sterilize before G2G)
-      const gen2BagsToMake = demand.gen2BagsNewProduction + demand.gen2BagsToRestock;
-      if (gen2BagsToMake > 0 && this.isInHorizon(pcGrainForGen2Date, today, hw)) {
-        this.addPCRequest(calendar, {
-          runType: 'GRAIN',
-          date: pcGrainForGen2Date,
-          speciesId: demand.speciesId,
-          speciesCode,
-          bagType: 'GEN2_GRAIN',
-          bagCount: gen2BagsToMake,
-          deadlineDate: g2gDate,
-          batchId: generateBatchId(speciesCode, 'G2', pcGrainForGen2Date, this.nextSeq(`${speciesCode}-G2`)),
-        });
-      }
-
-      // G2G_TRANSFER task
-      if (this.isInHorizon(g2gDate, today, hw)) {
-        this.addTask(calendar, g2gDate, {
-          taskType: 'G2G_TRANSFER',
-          title: `G2G Transfer — ${demand.gen1BagsAdjusted}× Gen1 → ${gen2BagsToMake}× Gen2 ${demand.speciesName}`,
-          speciesId: demand.speciesId,
-          estimatedMins: estimateMins('G2G_TRANSFER', hw),
-          status: 'PENDING',
-          notes: `Scheduled to produce ${gen2BagsToMake} Gen2 bags for bulk inoculation and fridge restocking.`,
-        }, hw, output);
+      // INOCULATION / G2G
+      if (this.isInHorizon(inocDates[i], today, hw)) {
+        if (i === 0) {
+          this.addTask(calendar, inocDates[i], {
+            taskType: 'INOCULATE_GEN1',
+            title: `Inoculate Gen1 Grain --- ${bagsToMake}-- ${demand.speciesName}`,
+            speciesId: demand.speciesId,
+            estimatedMins: estimateMins('INOCULATE_GEN1', hw, bagsToMake),
+            status: 'PENDING',
+            notes: `LC to Gen1 Grain. Requires ${bagsToMake} Gen1 bags.`,
+          }, hw, output);
+        } else {
+          this.addTask(calendar, inocDates[i], {
+            taskType: 'G2G_TRANSFER',
+            title: `G2G Transfer --- ${demand.genBagsAdjusted[i-1]}-- Gen${i} --- ${bagsToMake}-- Gen${genNum} ${demand.speciesName}`,
+            speciesId: demand.speciesId,
+            estimatedMins: estimateMins('G2G_TRANSFER', hw),
+            status: 'PENDING',
+            notes: `Scheduled to produce ${bagsToMake} Gen${genNum} bags.`,
+          }, hw, output);
+        }
       }
     }
 
-    // ── FRIDGE pull tasks ─────────────────────────────────────
-    if (demand.gen2BagsFromFridge > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
+    // ------ FRIDGE pull tasks ---------------------------------------------------------------------------------------------------------------
+    if (demand.finalGenBagsFromFridge > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
       this.addTask(calendar, bulkInocDate, {
         taskType: 'MOVE_TO_FRIDGE',
-        title: `Pull ${demand.gen2BagsFromFridge}× ${demand.speciesName} Gen2 from Fridge`,
+        title: `Pull ${demand.finalGenBagsFromFridge}-- ${demand.speciesName} Gen${maxGen} from Fridge`,
         speciesId: demand.speciesId,
         estimatedMins: estimateMins('MOVE_TO_FRIDGE', hw),
         status: 'PENDING',
-        notes: `Pulling ${demand.gen2BagsFromFridge} Gen2 bags from fridge buffer to meet bulk inoculation target without new production.`,
+        notes: `Pulling ${demand.finalGenBagsFromFridge} Gen${maxGen} bags from fridge buffer to meet bulk inoculation target.`,
       }, hw, output);
     }
 
-    // ── BULK inoculation ──────────────────────────────────────
-    if (demand.gen2BagsNewProduction > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
-
+    // ------ BULK inoculation ------------------------------------------------------------------------------------------------------------------
+    const totalBulkToMake = demand.bulkBlocksNeeded; // this uses both new + fridge
+    if (totalBulkToMake > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
       if (species.bulkPrepMethod === 'PC') {
-        // PC_RUN_BULK day before inoculation
         const pcBulkDate = addDays(bulkInocDate, -1);
         if (this.isInHorizon(pcBulkDate, today, hw)) {
           this.addPCRequest(calendar, {
@@ -366,7 +362,7 @@ export class SchedulerEngine {
             speciesId: demand.speciesId,
             speciesCode,
             bagType: 'BULK_HWFP',
-            bagCount: demand.gen2BagsNewProduction,
+            bagCount: totalBulkToMake,
             deadlineDate: bulkInocDate,
             batchId: generateBatchId(speciesCode, 'BLK', pcBulkDate, this.nextSeq(`${speciesCode}-BLK`)),
           });
@@ -374,56 +370,53 @@ export class SchedulerEngine {
 
         this.addTask(calendar, bulkInocDate, {
           taskType: 'INOCULATE_BULK',
-          title: `Inoculate Bulk HWFP — ${demand.gen2BagsNewProduction}× ${demand.speciesName}`,
+          title: `Inoculate Bulk HWFP --- ${totalBulkToMake}-- ${demand.speciesName}`,
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('INOCULATE_BULK', hw),
           status: 'PENDING',
-          notes: `Scheduled to inoculate ${demand.bulkBlocksNeeded} bulk blocks to meet target harvest goal.`,
+          notes: `Scheduled to inoculate ${totalBulkToMake} bulk blocks to meet target harvest goal.`,
         }, hw, output);
 
       } else if (species.bulkPrepMethod === 'PASTEURIZE') {
-        // Pasteurize CVG same day (no PC needed)
         this.addTask(calendar, bulkInocDate, {
           taskType: 'PASTEURIZE_BULK_CVG',
-          title: `Pasteurize CVG + Inoculate — ${demand.gen2BagsNewProduction}× ${demand.speciesName}`,
+          title: `Pasteurize CVG + Inoculate --- ${totalBulkToMake}-- ${demand.speciesName}`,
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('PASTEURIZE_BULK_CVG', hw) + estimateMins('INOCULATE_BULK', hw),
           status: 'PENDING',
-          notes: `Scheduled to prepare and inoculate ${demand.bulkBlocksNeeded} pasteurized blocks to meet target harvest goal.`,
+          notes: `Scheduled to prepare and inoculate ${totalBulkToMake} pasteurized blocks to meet target harvest goal.`,
         }, hw, output);
 
       } else if (species.bulkPrepMethod === 'NONE') {
-        // Cordyceps: load fruiting chamber directly from grain bag
         this.addTask(calendar, bulkInocDate, {
           taskType: 'LOAD_FRUITING_CHAMBER',
-          title: `Load Fruiting Chamber — ${demand.gen2BagsNewProduction}× ${demand.speciesName}`,
+          title: `Load Fruiting Chamber --- ${totalBulkToMake}-- ${demand.speciesName}`,
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('LOAD_FRUITING_CHAMBER', hw),
           status: 'PENDING',
-          notes: `Scheduled to move ${demand.gen2BagsNewProduction} bags to fruiting chamber to meet target harvest goal.`,
+          notes: `Scheduled to move ${totalBulkToMake} bags to fruiting chamber to meet target harvest goal.`,
         }, hw, output);
       }
     }
 
-    // ── MOVE surplus Gen2 to Fridge ───────────────────────────
-    // After G2G, if more Gen2 made than needed for bulk, remainder goes to fridge
-    const surplusGen2 = demand.gen2BagsToRestock;
-    if (surplusGen2 > 0 && this.isInHorizon(g2gDate, today, hw)) {
-      const moveFridgeDate = addDays(g2gDate, p.gen2ColonizationDaysMax);
+    // ------ MOVE surplus GenN to Fridge ---------------------------------------------------------------------------------
+    const surplusGen = demand.finalGenBagsToRestock;
+    if (surplusGen > 0 && this.isInHorizon(inocDates[maxGen - 1], today, hw)) {
+      const moveFridgeDate = addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax);
       if (this.isInHorizon(moveFridgeDate, today, hw)) {
         this.addTask(calendar, moveFridgeDate, {
           taskType: 'MOVE_TO_FRIDGE',
-          title: `Move ${surplusGen2}× ${demand.speciesName} Gen2 → Fridge Buffer`,
+          title: `Move ${surplusGen}-- ${demand.speciesName} Gen${maxGen} --- Fridge Buffer`,
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('MOVE_TO_FRIDGE', hw),
           status: 'PENDING',
-          notes: `Moving surplus Gen2 bags (${surplusGen2} bags) produced during G2G transfer to fridge buffer.`,
+          notes: `Moving surplus Gen${maxGen} bags (${surplusGen} bags) produced during G2G transfer to fridge buffer.`,
         }, hw, output);
       }
     }
   }
 
-  // ── STEP 4: PC RUN BIN-PACKING ────────────────────────────
+  // ------ STEP 4: PC RUN BIN-PACKING ------------------------------------------------------------------------------------
 
   /**
    * Intermediate store for PC requests before bin-packing.
@@ -533,7 +526,7 @@ export class SchedulerEngine {
 
           this.addTask(calendar, d, {
             taskType,
-            title: `PC Run [${req.runType}] — ${toPlace} bags (${req.speciesCode})`,
+            title: `PC Run [${req.runType}] --- ${toPlace} bags (${req.speciesCode})`,
             speciesId: req.speciesId,
             estimatedMins: cycleMins,
             status: 'PENDING',
@@ -563,7 +556,7 @@ export class SchedulerEngine {
     this.pcRequests = [];
   }
 
-  // ── STEP 5: TICK ACTIVE BATCHES ──────────────────────────
+  // ------ STEP 5: TICK ACTIVE BATCHES ------------------------------------------------------------------------------
 
   private tickActiveBatches(
     batches: Batch[],
@@ -577,7 +570,7 @@ export class SchedulerEngine {
       if (batch.status === 'INCUBATING' && batch.colonizationTarget) {
         const targetDate = fromDateStr(batch.colonizationTarget);
         if (today >= targetDate) {
-          // Batch is past its colonization target — flag for review
+          // Batch is past its colonization target --- flag for review
           output.warnings.push({
             type: 'FRIDGE_LOW',
             date: toDateStr(today),
@@ -612,7 +605,7 @@ export class SchedulerEngine {
           const flushNum = (batch.flushCount ?? 0) + 1;
           this.addTask(calendar, nextFlushDate, {
             taskType: 'HARVEST',
-            title: `Harvest Flush ${flushNum} — ${batch.batchId}`,
+            title: `Harvest Flush ${flushNum} --- ${batch.batchId}`,
             speciesId: batch.speciesId,
             batchId: batch.id,
             flushNumber: flushNum,
@@ -625,7 +618,7 @@ export class SchedulerEngine {
     }
   }
 
-  // ── STEP 6: LC RECONCILIATION ────────────────────────────
+  // ------ STEP 6: LC RECONCILIATION ------------------------------------------------------------------------------------
 
   private reconcileLC(
     tasks: Partial<Task>[],
@@ -666,7 +659,7 @@ export class SchedulerEngine {
           type: 'LC_LOW',
           date: new Date().toISOString().split('T')[0],
           message: `${species.commonName} LC will drop to ${(available - totalMl).toFixed(0)}mL ` +
-                   `after scheduled tasks — below threshold of ${species.lcRestockThresholdMl}mL. ` +
+                   `after scheduled tasks - below threshold of ${species.lcRestockThresholdMl}mL. ` +
                    `Schedule PREP_LC soon.`,
           taskRef: `${species.commonName}-LC`,
           severity: 'WARNING',
@@ -675,7 +668,7 @@ export class SchedulerEngine {
     }
   }
 
-  // ── STEP 7: RAW MATERIAL RECONCILIATION ──────────────────
+  // ------ STEP 7: RAW MATERIAL RECONCILIATION ------------------------------------------------------
 
   private reconcileInventory(
     tasks: Partial<Task>[],
@@ -709,7 +702,7 @@ export class SchedulerEngine {
           type: 'MATERIAL_LOW',
           date: new Date().toISOString().split('T')[0],
           message: `${material.materialName} will drop to ${remaining.toFixed(1)} ${material.unit} ` +
-                   `after scheduled tasks — below reorder threshold of ${material.reorderThreshold} ${material.unit}.`,
+                   `after scheduled tasks - below reorder threshold of ${material.reorderThreshold} ${material.unit}.`,
           taskRef: `REORDER-${material.materialName}`,
           severity: remaining <= 0 ? 'ERROR' : 'WARNING',
         });
@@ -717,7 +710,7 @@ export class SchedulerEngine {
     }
   }
 
-  // ── STEP 8: CONSTRAINT VIOLATION SCAN ────────────────────
+  // ------ STEP 8: CONSTRAINT VIOLATION SCAN ------------------------------------------------------------
 
   private detectViolations(
     calendar: Map<string, DayEntry>,
@@ -744,7 +737,7 @@ export class SchedulerEngine {
           type: 'PC_CAPACITY',
           date: dateStr,
           message: `CONSTRAINT VIOLATION on ${dateStr}: MICROLAB run shares day with GRAIN/BULK run. ` +
-                   `Must separate — MICROLAB contamination risk.`,
+                    `Must separate - MICROLAB contamination risk.`,
           taskRef: 'MICROLAB_MIX',
           severity: 'ERROR',
         });
@@ -758,7 +751,7 @@ export class SchedulerEngine {
           type: 'OVER_BUDGET',
           date: dateStr,
           message: `Day ${dateStr}: ${totalMins} min of tasks vs ${hw.dailyAvailableMins} min budget. ` +
-                   `Flagged OVER_BUDGET_WARNING — tasks remain scheduled.`,
+                    `Flagged OVER_BUDGET_WARNING - tasks remain scheduled.`,
           taskRef: 'TIME_BUDGET',
           severity: 'WARNING',
         });
@@ -772,7 +765,7 @@ export class SchedulerEngine {
     }
   }
 
-  // ── HELPERS ───────────────────────────────────────────────
+  // ------ HELPERS ---------------------------------------------------------------------------------------------------------------------------------------------
 
   private buildCalendar(
     today: Date,
