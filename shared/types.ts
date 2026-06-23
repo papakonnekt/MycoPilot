@@ -40,6 +40,7 @@ export type TaskType =
   | 'LOAD_FRUITING_CHAMBER'
   | 'START_FRUITING'
   | 'HARVEST'
+  | 'SOAK_BLOCKS'
   | 'MARK_SPENT_TOSS'
   | 'MOVE_TO_FRIDGE'
   // Genetics / Micro-lab
@@ -123,8 +124,8 @@ export interface SpeciesProfile {
 }
 
 export interface HardwareSettings {
-  id: number;
-  profileName: string;
+  id?: number;
+  profileName?: string;
   maxPcRunsPerDay: number;
   maxBagsPerPcRun: number;
   grainCycleMins: number;
@@ -136,8 +137,9 @@ export interface HardwareSettings {
   homogeneousByBagType: boolean;
   dailyAvailableMins: number;
   schedulingHorizonDays: number;
+  pcUnitCount: number;
   isActive: boolean;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export interface FridgeThreshold {
@@ -380,6 +382,7 @@ export interface DemandResult {
   totalBulkBagsPerWeek: number;
   lcMlPerWeek: number;
   profile: SpeciesProfile;
+  weekStartDate: string;
 }
 
 export interface AdjustedDemand extends DemandResult {

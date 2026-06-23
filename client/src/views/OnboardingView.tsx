@@ -184,12 +184,48 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
   >([])
 
   // ── Navigation ───────────────────────────────────────────────
+  const validateStep = (currentStep: number): string | null => {
+    if (currentStep === 1) {
+      if (hardware.dailyAvailableMins < 30) return "Daily available minutes must be at least 30."
+      if (hardware.grainCycleMins <= 0 || hardware.bulkCycleMins <= 0 || hardware.microlabCycleMins <= 0) {
+        return "Cycle minutes must be greater than 0."
+      }
+    }
+    if (currentStep === 2) {
+      if (recipes.some(r => !r.name.trim())) return "All recipes must have a name."
+      for (const r of recipes) {
+        if (r.ingredients.length === 0) return `Recipe "${r.name}" must have at least one ingredient.`
+        if (r.ingredients.some(i => !i.ingredient.trim())) return `All ingredients in "${r.name}" must have a name.`
+      }
+    }
+    if (currentStep === 3) {
+      if (speciesList.length === 0) return "Please add at least one species."
+      if (speciesList.some(s => !s.commonName.trim())) return "All species must have a Common Name."
+    }
+    if (currentStep === 4) {
+      for (const s of speciesList) {
+        if (s.lcToGen1DaysMin > s.lcToGen1DaysMax) return `Min days cannot exceed max days for ${s.commonName || 'species'}.`
+        if (s.gen2ColonizationDaysMin > s.gen2ColonizationDaysMax) return `Min days cannot exceed max days for ${s.commonName || 'species'}.`
+        if (s.bulkColonizationDaysMin > s.bulkColonizationDaysMax) return `Min days cannot exceed max days for ${s.commonName || 'species'}.`
+        if (s.fruitingDaysMin > s.fruitingDaysMax) return `Min days cannot exceed max days for ${s.commonName || 'species'}.`
+      }
+    }
+    return null;
+  }
+
   const goNext = () => {
+    const err = validateStep(step);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setError(null);
     window.scrollTo(0, 0)
     setSlideDir(1)
     setStep(s => Math.min(s + 1, 7))
   }
   const goBack = () => {
+    setError(null);
     window.scrollTo(0, 0)
     setSlideDir(-1)
     setStep(s => Math.max(s - 1, 1))
@@ -1017,18 +1053,20 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     ))}
                   </div>
                 </div>
-
-                {error && (
-                  <div className="p-3 rounded-xl bg-danger-dim text-danger text-sm text-center">
-                    {error}
-                  </div>
-                )}
               </div>
             )}
 
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {error && (
+        <div className="fixed bottom-24 left-0 right-0 z-50 flex justify-center px-4 pointer-events-none">
+          <div className="bg-danger/90 backdrop-blur-sm text-surface-900 font-bold px-4 py-2 rounded-xl text-sm shadow-xl max-w-xl w-full text-center">
+            {error}
+          </div>
+        </div>
+      )}
 
       {/* ── Fixed footer nav (safe-area aware) ────────────────── */}
       <div

@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS species_profile (
   max_generations              INTEGER NOT NULL DEFAULT 8,
   -- Spore collection frequency (every Nth fruiting batch)
   spore_clone_freq             INTEGER NOT NULL DEFAULT 3,
+  priority_level               INTEGER NOT NULL DEFAULT 5,
+  flush_rest_days              INTEGER NOT NULL DEFAULT 7,
   -- Version control
   effective_from               TEXT    NOT NULL DEFAULT (date('now')),
   effective_to                 TEXT,
@@ -78,6 +80,8 @@ CREATE TABLE IF NOT EXISTS hardware_settings (
   -- Q4: soft budget (warn, don't block)
   daily_available_mins        INTEGER NOT NULL DEFAULT 480,
   scheduling_horizon_days     INTEGER NOT NULL DEFAULT 28,
+  lab_days                    TEXT    NOT NULL DEFAULT '[1,2,3,4,5,6]', -- JSON array 0-6
+  pc_unit_count               INTEGER NOT NULL DEFAULT 1,
   is_active                   INTEGER NOT NULL DEFAULT 1,
   updated_at                  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -116,6 +120,7 @@ CREATE TABLE IF NOT EXISTS lineage (
   is_active             INTEGER NOT NULL DEFAULT 1,
   is_senescent          INTEGER NOT NULL DEFAULT 0,
   senescence_flagged_at TEXT,
+  history_json          TEXT,
   notes                 TEXT,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -209,6 +214,7 @@ CREATE TABLE IF NOT EXISTS batch (
                       'HARVESTED','SPENT','CONTAMINATED','DISPOSED','EXPIRED'
                     )),
   quantity          INTEGER NOT NULL,
+  weight_per_bag_lbs REAL,
   contamination_type TEXT CHECK(contamination_type IN ('TRICH','BACTERIA','MOLD','WET_ROT','UNKNOWN')),
   contamination_qty  INTEGER,  -- How many bags contaminated (may be partial)
   contaminated_at    TEXT,
@@ -217,6 +223,7 @@ CREATE TABLE IF NOT EXISTS batch (
   fruiting_start       TEXT,
   fruiting_target_end  TEXT,
   flush_count          INTEGER NOT NULL DEFAULT 0,
+  is_deleted           INTEGER NOT NULL DEFAULT 0,
   created_at           TEXT    NOT NULL DEFAULT (datetime('now')),
   updated_at           TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -341,14 +348,17 @@ CREATE TABLE IF NOT EXISTS task (
   -- Q4: Soft budget — status can be OVER_BUDGET_WARNING but task always scheduled
   status                TEXT    NOT NULL DEFAULT 'PENDING'
                         CHECK(status IN (
-                          'PENDING','IN_PROGRESS','COMPLETE','SKIPPED',
+                          'PENDING','IN_PROGRESS','BLOCKED','COMPLETE','SKIPPED',
                           'RESCHEDULED','FLAGGED','OVER_BUDGET_WARNING'
                         )),
   flush_number          INTEGER,             -- For HARVEST tasks
   depends_on_task_id    INTEGER REFERENCES task(id),
   depends_on_batch_id   INTEGER REFERENCES batch(id), -- For flush kill cascade
+  blocked_by_task_id    INTEGER REFERENCES task(id),
   is_auto_generated     INTEGER NOT NULL DEFAULT 1,
+  is_deleted            INTEGER NOT NULL DEFAULT 0,
   rescheduled_from_date TEXT,
+  in_progress_started_at TEXT,
   completed_at          TEXT,
   created_by            TEXT    NOT NULL DEFAULT 'SCHEDULER',
   notes                 TEXT,
@@ -429,4 +439,37 @@ CREATE TABLE IF NOT EXISTS pasteurization_event (
   completed_at   TEXT,
   notes          TEXT,
   created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ─────────────────────────────────────────────────────────────
+-- AUDIT LOG & TELEMETRY
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  entity_type    TEXT    NOT NULL,
+  entity_id      TEXT    NOT NULL,
+  action         TEXT    NOT NULL,
+  state_before   TEXT,
+  state_after    TEXT,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now')),
+  created_by     TEXT    NOT NULL DEFAULT 'SYSTEM'
+);
+
+-- Protocol library
+CREATE TABLE IF NOT EXISTS protocol (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  species_id     INTEGER REFERENCES species(id),
+  name           TEXT    NOT NULL,
+  content_md     TEXT,
+  created_at     TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Batch photos
+CREATE TABLE IF NOT EXISTS batch_photo (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id       INTEGER NOT NULL REFERENCES batch(id) ON DELETE CASCADE,
+  file_path      TEXT    NOT NULL,
+  captured_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+  notes          TEXT
 );

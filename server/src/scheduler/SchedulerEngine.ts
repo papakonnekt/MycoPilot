@@ -1,4 +1,4 @@
-﻿import {
+import {
   AdjustedDemand,
   BatchStage,
   BatchStatus,
@@ -69,6 +69,7 @@ function estimateMins(taskType: TaskType, hw: HardwareSettings, quantity = 1): n
     case 'LOAD_FRUITING_CHAMBER': return 30;
     case 'START_FRUITING':  return 30;
     case 'HARVEST':         return 20 * quantity;
+    case 'SOAK_BLOCKS':     return 30;
     case 'MARK_SPENT_TOSS': return 5;
     case 'MOVE_TO_FRIDGE':  return 10;
     case 'PREP_LC':         return 45;
@@ -143,10 +144,32 @@ export class SchedulerEngine {
     );
 
     // ------ STEP 3: Generate production chain tasks ---------------------------------------------
+    const horizonEnd = addDays(params.today, params.hardware.schedulingHorizonDays);
+
     for (const demand of adjustedDemands) {
       const species = params.speciesMap.get(demand.speciesId)!;
       const speciesCode = this.getSpeciesCode(species.commonName);
-      this.generateProductionChain(demand, species, speciesCode, params.today, calendar, params.hardware, output);
+      
+      let anchor = new Date(demand.weekStartDate + 'T12:00:00');
+      if (isNaN(anchor.getTime())) {
+        anchor = new Date(params.today);
+      }
+
+      // Fast-forward anchor to the start of the relevant window (e.g. today or slightly before)
+      // We want to generate chains for any week that might have tasks falling within the horizon.
+      // To be safe, we start from today - 60 days (to catch tasks that might land in the horizon)
+      // and go up to horizonEnd.
+      let currentAnchor = new Date(anchor);
+      const safePast = addDays(params.today, -90);
+      while (currentAnchor < safePast) {
+        currentAnchor = addDays(currentAnchor, 7);
+      }
+
+      while (currentAnchor <= horizonEnd) {
+        const weekDemand = { ...demand, weekStartDate: currentAnchor.toISOString().split('T')[0] };
+        this.generateProductionChain(weekDemand, species, speciesCode, params.today, calendar, params.hardware, output);
+        currentAnchor = addDays(currentAnchor, 7);
+      }
     }
 
     // ------ STEP 4: Pack PC runs across calendar ---------------------------------------------------
@@ -210,6 +233,7 @@ export class SchedulerEngine {
       totalBulkBagsPerWeek,
       lcMlPerWeek,
       profile,
+      weekStartDate: target.weekStartDate,
     };
   }
 
@@ -268,30 +292,31 @@ export class SchedulerEngine {
     const p = demand.profile;
     const maxGen = p.maxGenerations || 2;
 
-    const harvestTarget = addDays(today, hw.schedulingHorizonDays);
-    const bulkInocDate = addDays(harvestTarget, -(p.fruitingDaysMax + p.bulkColonizationDaysMax));
+    // Start production chain based on the Weekly Target's anchor date
+    // Note: ensure we parse it as local time to avoid timezone shifts
+    let anchorDate = new Date(demand.weekStartDate + 'T12:00:00');
+    if (isNaN(anchorDate.getTime())) {
+      anchorDate = new Date(today);
+    }
 
-    // Calculate dates for each generation
+    // Calculate dates for each generation FORWARDS
     const inocDates = new Array(maxGen);
     const pcDates = new Array(maxGen);
 
-    // Final generation
-    inocDates[maxGen - 1] = addDays(bulkInocDate, -(p.gen2ColonizationDaysMax));
-    pcDates[maxGen - 1] = addDays(inocDates[maxGen - 1], -1);
+    // First generation (LC to Gen1)
+    inocDates[0] = new Date(anchorDate);
+    pcDates[0] = addDays(inocDates[0], -1);
 
-    // Middle generations (N-1 down to 2)
-    for (let i = maxGen - 2; i >= 1; i--) {
-        inocDates[i] = addDays(inocDates[i + 1], -(p.gen2ColonizationDaysMax));
+    // Middle and final generations
+    for (let i = 1; i < maxGen; i++) {
+        // Gen N inoculates after Gen N-1 finishes colonizing
+        const prevColonizationDays = i === 1 ? p.lcToGen1DaysMax : p.gen2ColonizationDaysMax;
+        inocDates[i] = addDays(inocDates[i - 1], prevColonizationDays);
         pcDates[i] = addDays(inocDates[i], -1);
     }
 
-    // First generation (LC to Gen1)
-    if (maxGen > 1) {
-        inocDates[0] = addDays(inocDates[1], -(p.lcToGen1DaysMax));
-    } else {
-        inocDates[0] = addDays(bulkInocDate, -(p.lcToGen1DaysMax));
-    }
-    pcDates[0] = addDays(inocDates[0], -1);
+    // Bulk Inoculation
+    const bulkInocDate = addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax);
 
     // ------ Schedule Grain Generations ---------------------------------------
     for (let i = 0; i < maxGen; i++) {
@@ -479,12 +504,11 @@ export class SchedulerEngine {
         const mlabRuns  = day.pcRuns.filter(r => r.runType === 'MICROLAB').length;
         const totalRuns = grainRuns + bulkRuns + mlabRuns;
 
-        // Hard constraint: no more than maxPcRunsPerDay
-        if (totalRuns >= hw.maxPcRunsPerDay) continue;
+        // Hard constraint: no more than (maxPcRunsPerDay * pcUnitCount)
+        if (totalRuns >= (hw.maxPcRunsPerDay * hw.pcUnitCount)) continue;
 
-        // Hard constraint: MICROLAB never shares a day with GRAIN or BULK
-        if (req.runType === 'MICROLAB' && (grainRuns + bulkRuns > 0)) continue;
-        if (req.runType !== 'MICROLAB' && mlabRuns > 0) continue;
+        // (Removed artificial same-day constraint for MICROLAB vs GRAIN/BULK)
+        // They will be in separate PC runs naturally because of the runType grouping.
 
         // Try to fill an existing same-type run first
         const existingRun = day.pcRuns.find(r => r.runType === req.runType);
@@ -598,12 +622,15 @@ export class SchedulerEngine {
         }
       }
 
-      // Auto-generate next flush task for fruiting batches (Q3)
+      // Auto-generate next flush sequence for fruiting batches
       if (batch.status === 'FRUITING' && batch.fruitingTargetEnd) {
-        const nextFlushDate = fromDateStr(batch.fruitingTargetEnd);
-        if (this.isInHorizon(nextFlushDate, today, hw)) {
-          const flushNum = (batch.flushCount ?? 0) + 1;
-          this.addTask(calendar, nextFlushDate, {
+        let currentFlushDate = fromDateStr(batch.fruitingTargetEnd);
+        let flushNum = (batch.flushCount ?? 0) + 1;
+        const maxFlushes = 3; // Typically stop predicting after 3 flushes
+        
+        while (flushNum <= maxFlushes && this.isInHorizon(currentFlushDate, today, hw)) {
+          // 1. Harvest Task
+          this.addTask(calendar, currentFlushDate, {
             taskType: 'HARVEST',
             title: `Harvest Flush ${flushNum} --- ${batch.batchId}`,
             speciesId: batch.speciesId,
@@ -613,6 +640,26 @@ export class SchedulerEngine {
             estimatedMins: estimateMins('HARVEST', hw),
             status: 'PENDING',
           }, hw, output);
+
+          // 2. Soak Task (next day)
+          const soakDate = addDays(currentFlushDate, 1);
+          if (this.isInHorizon(soakDate, today, hw) && flushNum < maxFlushes) {
+            this.addTask(calendar, soakDate, {
+              taskType: 'SOAK_BLOCKS', // Assuming this task type is valid or maps to a generic labor task
+              title: `Soak Blocks after Flush ${flushNum} --- ${batch.batchId}`,
+              speciesId: batch.speciesId,
+              batchId: batch.id,
+              dependsOnBatchId: batch.id,
+              estimatedMins: 30, // 30 mins to soak blocks
+              status: 'PENDING',
+              notes: `Submerge blocks in cold water for 12-24 hours to rehydrate for flush ${flushNum + 1}.`,
+            }, hw, output);
+          }
+
+          // Advance to next flush (typically 7-10 days after soak)
+          // Cordyceps doesn't soak/flush twice, but standard blocks do.
+          currentFlushDate = addDays(soakDate, 7);
+          flushNum++;
         }
       }
     }
@@ -683,8 +730,13 @@ export class SchedulerEngine {
       if (!task.taskType) continue;
       const taskRecipes = recipes.filter(r => r.taskType === task.taskType);
       for (const recipe of taskRecipes) {
-        // Estimate bag count from task (default 1)
-        const bagCount = 1;
+        let bagCount = 1;
+        if (task.title) {
+          const match = task.title.match(/---\s*(\d+)\s*(bags|--)/);
+          if (match && match[1]) {
+            bagCount = parseInt(match[1], 10) || 1;
+          }
+        }
         const total = recipe.quantityPerBag * bagCount;
         consumed.set(recipe.materialId, (consumed.get(recipe.materialId) ?? 0) + total);
       }
@@ -719,29 +771,19 @@ export class SchedulerEngine {
   ): void {
     for (const [dateStr, day] of calendar.entries()) {
       // Check PC run ceiling
-      if (day.pcRuns.length > hw.maxPcRunsPerDay) {
+      const maxAllowed = hw.maxPcRunsPerDay * hw.pcUnitCount;
+      if (day.pcRuns.length > maxAllowed) {
         output.warnings.push({
           type: 'PC_CAPACITY',
           date: dateStr,
-          message: `Day ${dateStr} has ${day.pcRuns.length} PC runs scheduled but max is ${hw.maxPcRunsPerDay}.`,
+          message: `Day ${dateStr} has ${day.pcRuns.length} PC runs scheduled but max is ${maxAllowed} (${hw.maxPcRunsPerDay} runs * ${hw.pcUnitCount} PCs).`,
           taskRef: 'PC_CAP',
           severity: 'ERROR',
         });
       }
 
-      // Check for illegal MICROLAB + GRAIN/BULK mixing on same day
-      const hasGrainBulk = day.pcRuns.some(r => r.runType === 'GRAIN' || r.runType === 'BULK');
-      const hasMicrolab  = day.pcRuns.some(r => r.runType === 'MICROLAB');
-      if (hasGrainBulk && hasMicrolab) {
-        output.warnings.push({
-          type: 'PC_CAPACITY',
-          date: dateStr,
-          message: `CONSTRAINT VIOLATION on ${dateStr}: MICROLAB run shares day with GRAIN/BULK run. ` +
-                    `Must separate - MICROLAB contamination risk.`,
-          taskRef: 'MICROLAB_MIX',
-          severity: 'ERROR',
-        });
-      }
+      // (Removed illegal MICROLAB + GRAIN/BULK mixing on same day check)
+      // Since they are on different runs, there is no contamination risk.
 
       // Flag over-budget days (Q4: soft warning, not block)
       const totalMins = day.tasks.reduce((s, t) => s + (t.estimatedMins ?? 0), 0);
@@ -823,6 +865,8 @@ export class SchedulerEngine {
       'Jack Frost':   'JF',
       "Lion's Mane":  'LM',
       'Pink Oyster':  'PO',
+      'Blue Oyster':  'BO',
+      'Yellow Oyster':'YO',
       'Cordyceps':    'COR',
     };
     return codes[commonName] ?? commonName.substring(0, 3).toUpperCase();

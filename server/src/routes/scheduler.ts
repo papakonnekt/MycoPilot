@@ -43,9 +43,20 @@ router.post('/run', async (req: Request, res: Response) => {
       homogeneousByBagType: Boolean(hw.homogeneous_by_bag_type),
       dailyAvailableMins: hw.daily_available_mins,
       schedulingHorizonDays: hw.scheduling_horizon_days,
+      pcUnitCount: hw.pc_unit_count ?? 1,
       isActive: Boolean(hw.is_active),
       updatedAt: hw.updated_at,
     };
+
+    // IDEMPOTENCY FIX: Wipe auto-generated PENDING/OVER_BUDGET tasks before regenerating
+    const horizonEndDel = new Date(today);
+    horizonEndDel.setDate(horizonEndDel.getDate() + hardware.schedulingHorizonDays);
+    const deleteTasksResult = db.prepare(`
+      DELETE FROM task 
+      WHERE is_auto_generated = 1 
+        AND status IN ('PENDING', 'OVER_BUDGET_WARNING')
+        AND task_date BETWEEN ? AND ?
+    `).run(today.toISOString().split('T')[0], horizonEndDel.toISOString().split('T')[0]);
 
     // Species
     const speciesRows = db.prepare(`SELECT * FROM species WHERE is_active = 1`).all() as any[];

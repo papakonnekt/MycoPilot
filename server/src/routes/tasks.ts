@@ -248,56 +248,64 @@ router.patch('/batch/:batchId/mark-spent', (req: Request, res: Response) => {
   }
 });
 
-// ── POST /api/tasks/contamination ────────────────────────────
-// Log a contamination event and trigger traceback
-router.post('/contamination', (req: Request, res: Response) => {
+// ── PATCH /api/tasks/:id/contamination ────────────────────────
+// Log a contamination event from a task, flag the batch, and kill future tasks
+router.patch('/:id/contamination', (req: Request, res: Response) => {
   const db = getDb();
-  const { bagUnitId, batchId, contamType, contamStage, notes } = req.body;
+  const { id } = req.params;
+  const { type, qty, notes } = req.body;
 
   try {
-    // Get batch info for traceback FKs
-    const batch = db.prepare('SELECT * FROM batch WHERE id = ?').get(batchId) as any;
+    const task = db.prepare('SELECT * FROM task WHERE id = ?').get(id) as Task;
+    if (!task) return res.status(404).json({ success: false, error: 'Task not found' });
+    if (!task.batchId) return res.status(400).json({ success: false, error: 'Task is not associated with a batch' });
 
-    db.prepare(`
-      INSERT INTO contam_log (bag_unit_id, batch_id, pc_run_id, source_genetic_id, lineage_id, contam_type, contam_stage, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(bagUnitId, batchId, batch?.source_pc_run_id, batch?.source_genetic_id, batch?.lineage_id, contamType, contamStage, notes);
+    db.transaction(() => {
+      // 1. Update task
+      db.prepare(`UPDATE task SET status = 'FLAGGED', notes = ?, updated_at = datetime('now') WHERE id = ?`)
+        .run(`CONTAMINATION [${type}]: ${notes || ''}`, id);
 
-    // Update bag/batch status
-    if (bagUnitId) {
-      db.prepare(`UPDATE bag_unit SET status = 'CONTAMINATED', contam_type = ?, contam_logged_at = datetime('now') WHERE id = ?`)
-        .run(contamType, bagUnitId);
-    }
+      // 2. Update batch
+      db.prepare(`
+        UPDATE batch SET 
+          status = 'CONTAMINATED', 
+          contamination_type = ?, 
+          contamination_qty = COALESCE(contamination_qty, 0) + ?, 
+          contaminated_at = datetime('now'),
+          updated_at = datetime('now')
+        WHERE id = ?
+      `).run(type, qty, task.batchId);
 
-    // Run traceback query
-    const traceback = db.prepare(`
-      SELECT
-        'BATCH'    AS level,
-        b.batch_id AS identifier,
-        b.stage    AS detail,
-        b.status   AS status
-      FROM batch b WHERE b.id = ?
-      UNION ALL
-      SELECT
-        'PC RUN',
-        pc.batch_id,
-        pc.run_type || ' — ' || pc.bag_count || ' bags on ' || pc.scheduled_date,
-        pc.status
-      FROM pc_run pc
-      JOIN batch b ON b.source_pc_run_id = pc.id
-      WHERE b.id = ?
-      UNION ALL
-      SELECT
-        'LC SOURCE',
-        gm.batch_id,
-        gm.material_type || ' — vol: ' || COALESCE(gm.volume_ml_at_creation || 'mL', 'N/A'),
-        gm.status
-      FROM genetic_material gm
-      JOIN batch b ON b.source_genetic_id = gm.id
-      WHERE b.id = ?
-    `).all(batchId, batchId, batchId);
+      // 3. Kill pending tasks for this batch
+      db.prepare(`
+        UPDATE task SET status = 'SKIPPED', updated_at = datetime('now')
+        WHERE (depends_on_batch_id = ? OR batch_id = ?)
+          AND status IN ('PENDING', 'OVER_BUDGET_WARNING')
+          AND id != ?
+      `).run(task.batchId, task.batchId, id);
+    })();
 
-    res.json({ success: true, data: { contamLogId: batchId, traceback } });
+    res.json({ success: true, data: { taskId: id, message: `Contamination logged. Future tasks for batch ${task.batchId} cancelled.` } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── DELETE /api/tasks/before-horizon ─────────────────────────
+// Clean up old auto-generated pending tasks or completed tasks
+router.delete('/before-horizon', (req: Request, res: Response) => {
+  const db = getDb();
+  const { date } = req.query as { date?: string };
+  if (!date) return res.status(400).json({ success: false, error: 'date required' });
+
+  try {
+    const result = db.prepare(`
+      DELETE FROM task 
+      WHERE task_date < ? 
+        AND status IN ('COMPLETE', 'SKIPPED', 'RESCHEDULED', 'FLAGGED')
+    `).run(date);
+
+    res.json({ success: true, data: { tasksDeleted: result.changes } });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

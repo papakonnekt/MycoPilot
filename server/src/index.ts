@@ -89,6 +89,18 @@ cron.schedule('0 0 * * *', async () => {
   }
 });
 
+// Hourly: Truncate SQLite WAL file to prevent unbounded growth
+cron.schedule('0 * * * *', () => {
+  console.log('[CRON] Checkpointing database WAL...');
+  try {
+    const { getDb } = require('./db/database');
+    getDb().pragma('wal_checkpoint(TRUNCATE)');
+    console.log('[CRON] WAL checkpoint complete.');
+  } catch (err) {
+    console.error('[CRON] WAL checkpoint error:', err);
+  }
+});
+
 // ── START ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🍄 MycoScheduler API running on http://localhost:${PORT}`);

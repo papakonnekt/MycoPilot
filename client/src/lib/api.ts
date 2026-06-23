@@ -579,6 +579,24 @@ export function completeTask(
   return request(`/tasks/${id}/complete`, { method: 'PATCH' })
 }
 
+/** PATCH /tasks/:id/reschedule */
+export function rescheduleTask(
+  id: string | number,
+  newDate: string
+): Promise<{ success: boolean; message: string }> {
+  return request(`/tasks/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify({ newDate }) })
+}
+
+/** PATCH /tasks/:id/contamination */
+export function flagTaskContamination(
+  id: string | number,
+  type: string,
+  qty: number,
+  notes: string
+): Promise<{ success: boolean; message: string; tasksKilled?: number }> {
+  return request(`/tasks/${id}/contamination`, { method: 'PATCH', body: JSON.stringify({ type, qty, notes }) })
+}
+
 /** GET /batches */
 export function getBatches(): Promise<BatchRow[]> {
   return request<BatchRow[]>('/batches')

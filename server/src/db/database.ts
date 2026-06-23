@@ -29,18 +29,33 @@ export function closeDb(): void {
 }
 
 /**
- * Run a schema migration — reads schema.sql and seeds.sql and applies them.
- * Uses db.exec() on the full file — better-sqlite3 handles multi-statement SQL
- * including GENERATED ALWAYS AS columns natively.
+ * Run a schema migration.
  * Idempotent: uses CREATE TABLE IF NOT EXISTS throughout.
  */
 export function migrate(): void {
   const database = getDb();
 
+  // Run integrity check on boot
+  console.log('Verifying database integrity...');
+  const integrity = database.pragma('integrity_check', { simple: true });
+  if (integrity !== 'ok') {
+    console.error('CRITICAL: Database integrity check failed!', integrity);
+    throw new Error('Database corrupted');
+  }
+
+  // Create migrations table
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS _migrations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // First, apply the base schema.sql (idempotent)
   const schemaPath = path.resolve(__dirname, 'schema.sql');
   const schema = fs.readFileSync(schemaPath, 'utf8');
 
-  // Execute the full schema in one call — handles generated columns and views
   try {
     database.exec(schema);
   } catch (err) {
@@ -48,6 +63,27 @@ export function migrate(): void {
     // Tolerate "already exists" for idempotent re-runs
     if (!msg.includes('already exists') && !msg.includes('duplicate column')) {
       throw err;
+    }
+  }
+
+  // Run subsequent manual migrations from migrations/ folder
+  const migrationsDir = path.resolve(__dirname, 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
+    
+    const getApplied = database.prepare('SELECT name FROM _migrations').pluck().all() as string[];
+    const appliedSet = new Set(getApplied);
+
+    for (const file of files) {
+      if (!appliedSet.has(file)) {
+        console.log(`Applying migration: ${file}`);
+        const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        
+        database.transaction(() => {
+          database.exec(sql);
+          database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
+        })();
+      }
     }
   }
 

@@ -43,6 +43,11 @@ router.post('/setup', (req: Request, res: Response) => {
   const s = req.body;
 
   try {
+    const hwCheck = db.prepare(`SELECT id FROM hardware_settings WHERE is_active = 1 LIMIT 1`).get();
+    if (hwCheck) {
+      return res.status(400).json({ success: false, error: 'Setup is already complete. Please use management endpoints to update settings.' });
+    }
+
     const insertHw = db.prepare(`
       INSERT INTO hardware_settings (
         max_pc_runs_per_day, max_bags_per_pc_run,

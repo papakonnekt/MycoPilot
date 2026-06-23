@@ -1,7 +1,7 @@
 {
   "name": "myco-scheduler-server",
-  "version": "1.0.0",
-  "description": "MycoScheduler backend — constraint-based mycology production scheduler",
+  "version": "1.5.0",
+  "description": "Backend for Myco Lab Scheduler",
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
