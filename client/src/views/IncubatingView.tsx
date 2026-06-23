@@ -33,6 +33,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   WifiSlash,
+  Printer,
 } from 'phosphor-react'
 
 import {
@@ -167,7 +168,14 @@ let loadInFlight: Promise<void> | null = null
 export default function IncubatingView() {
   const [state, setState] = useState<FetchState>({ kind: 'loading' })
 
-  const [isModalOpen, setIsModalOpen] = useState(false)
+  type ModalState = 
+    | { type: 'new' }
+    | { type: 'advance'; row: BatchRow }
+    | { type: 'contaminate'; row: BatchRow }
+    | { type: 'open'; row: BatchRow }
+    | null
+
+  const [modalState, setModalState] = useState<ModalState>(null)
 
   const load = useCallback(async (): Promise<void> => {
     if (loadInFlight) return loadInFlight
@@ -210,18 +218,48 @@ export default function IncubatingView() {
       <IncubatingReady
         key={state.rows.length + ':' + (state.rows[0]?.id ?? 'empty')}
         rows={state.rows}
-        onReload={(action) => {
-          if (action === 'open-modal') setIsModalOpen(true)
+        onReload={(action, row) => {
+          if (action === 'open-modal') setModalState({ type: 'new' })
+          else if (action === 'advance' && row) setModalState({ type: 'advance', row })
+          else if (action === 'contaminate' && row) setModalState({ type: 'contaminate', row })
+          else if (action === 'open' && row) setModalState({ type: 'open', row })
           else load()
         }}
       />
-      {isModalOpen && (
+      {modalState?.type === 'new' && (
         <NewBatchModal
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => setModalState(null)}
           onSuccess={() => {
-            setIsModalOpen(false)
+            setModalState(null)
             load()
           }}
+        />
+      )}
+      {modalState?.type === 'advance' && (
+        <AdvanceBatchModal
+          row={modalState.row}
+          onClose={() => setModalState(null)}
+          onSuccess={() => {
+            setModalState(null)
+            load()
+          }}
+        />
+      )}
+      {modalState?.type === 'contaminate' && (
+        <ContaminateBatchModal
+          row={modalState.row}
+          onClose={() => setModalState(null)}
+          onSuccess={() => {
+            setModalState(null)
+            load()
+          }}
+        />
+      )}
+      {modalState?.type === 'open' && (
+        <BatchDetailSheet
+          row={modalState.row}
+          onClose={() => setModalState(null)}
+          onContaminate={() => setModalState({ type: 'contaminate', row: modalState.row })}
         />
       )}
     </>
@@ -237,7 +275,7 @@ function IncubatingReady({
   onReload,
 }: {
   rows: BatchRow[]
-  onReload: (action?: string) => void
+  onReload: (action?: string, row?: BatchRow) => void
 }) {
   const active = useMemo(() => {
     const filtered = rows.filter((b) => {
@@ -339,6 +377,9 @@ function IncubatingReady({
                   hero={i === 0}
                   entryDelayMs={Math.min(i * 80, 480)}
                   onRefresh={() => onReload()}
+                  onAdvance={() => onReload('advance', b.row)}
+                  onContaminate={() => onReload('contaminate', b.row)}
+                  onOpen={() => onReload('open', b.row)}
                 />
               ))}
             </AnimatePresence>
@@ -468,6 +509,9 @@ interface BatchCardProps {
   hero: boolean
   entryDelayMs: number
   onRefresh?: () => void
+  onAdvance?: () => void
+  onContaminate?: () => void
+  onOpen?: () => void
 }
 
 function BatchCard({
@@ -479,6 +523,9 @@ function BatchCard({
   hero,
   entryDelayMs,
   onRefresh,
+  onAdvance,
+  onContaminate,
+  onOpen,
 }: BatchCardProps) {
   const reduceMotion = useReducedMotion()
 
@@ -671,43 +718,66 @@ function BatchCard({
             className="mt-4 md:mt-5 pt-3 md:pt-4 flex items-center justify-between gap-2 min-w-0"
             style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
           >
-            {isOverdue ? (
+            <div className="flex gap-2 min-w-0 flex-1">
+              {isOverdue ? (
+                <button
+                  type="button"
+                  className="group min-h-[44px] inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium text-[#B23A2A] transition-all duration-450 ease-fluid"
+                  style={{ border: '1px solid rgba(178,58,42,0.3)' }}
+                  aria-label={`Move ${species} to next phase`}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (onAdvance) onAdvance()
+                  }}
+                >
+                  <span>Move to next phase</span>
+                  <ArrowRight
+                    size={14}
+                    weight="regular"
+                    className="transition-transform duration-450 ease-fluid group-hover:translate-x-0.5"
+                  />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium transition-colors duration-450 ease-fluid"
+                  style={{ color: 'var(--surface-muted)' }}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (onOpen) onOpen()
+                  }}
+                  aria-label={`Open ${species}`}
+                >
+                  <span>Open batch</span>
+                  <ArrowUpRight
+                    size={14}
+                    weight="regular"
+                    className="transition-transform duration-450 ease-fluid group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                  />
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
               <button
-                type="button"
-                className="group min-h-[44px] inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-sm font-medium text-[#B23A2A] transition-all duration-450 ease-fluid"
-                style={{ border: '1px solid rgba(178,58,42,0.3)' }}
-                aria-label={`Move ${species} to next phase`}
-                onClick={(e) => e.preventDefault()}
+                onClick={(e) => {
+                  e.preventDefault()
+                  window.open(`/api/batches/${row.id}/report`, '_blank')
+                }}
+                className="px-3 min-h-[44px] rounded-full text-[11px] font-semibold text-[#6C83CD] hover:bg-[#6C83CD]/10 transition-colors flex items-center gap-1.5"
               >
-                <span>Move to next phase</span>
-                <ArrowRight
-                  size={14}
-                  weight="regular"
-                  className="transition-transform duration-450 ease-fluid group-hover:translate-x-0.5"
-                />
+                <Printer size={14} />
+                <span>Print</span>
               </button>
-            ) : (
               <button
-                type="button"
-                className="group min-h-[44px] inline-flex items-center gap-1.5 text-sm font-medium transition-colors duration-450 ease-fluid"
-                style={{ color: 'var(--surface-muted)' }}
-                onClick={(e) => e.preventDefault()}
-                aria-label={`Open ${species}`}
+                onClick={(e) => {
+                  e.preventDefault()
+                  if (onContaminate) onContaminate()
+                }}
+                className="px-3 min-h-[44px] rounded-full text-[11px] font-semibold text-danger/70 hover:text-danger hover:bg-danger/10 transition-colors"
               >
-                <span>Open batch</span>
-                <ArrowUpRight
-                  size={14}
-                  weight="regular"
-                  className="transition-transform duration-450 ease-fluid group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-                />
+                Report Contam
               </button>
-            )}
-            <span
-              className="font-mono text-[10px] uppercase tracking-eyebrow truncate ml-2"
-              style={{ color: 'var(--surface-muted)' }}
-            >
-              {row.batch_id ?? `#${row.id}`}
-            </span>
+            </div>
           </div>
         </div>
       </div>
@@ -1099,6 +1169,265 @@ function NewBatchModal({
           </div>
         </form>
       </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// ADVANCE BATCH MODAL
+// ─────────────────────────────────────────────────────────────
+
+function AdvanceBatchModal({
+  row,
+  onClose,
+  onSuccess,
+}: {
+  row: BatchRow
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  
+  const currentStage = humanizeStage(row.stage)
+  
+  const stageMap: Record<string, string> = {
+    'GEN1_GRAIN': 'GEN2_GRAIN',
+    'GEN2_GRAIN': 'BULK_BLOCK',
+    'BULK_BLOCK': 'FRUITING',
+    'FRUITING': 'HARVESTED' // or spent
+  }
+  const nextStageId = stageMap[row.stage || ''] || 'SPENT'
+  const nextStageName = humanizeStage(nextStageId)
+
+  const handleAdvance = async () => {
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const { advanceBatch } = await import('../lib/api')
+      await advanceBatch(row.id)
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to advance batch')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-surface-border rounded-2xl shadow-xl overflow-hidden flex flex-col">
+        <div className="p-5 text-center">
+          <div className="mx-auto w-12 h-12 bg-bio-green/20 text-bio-green rounded-full flex items-center justify-center mb-4">
+            <ArrowRight size={24} weight="bold" />
+          </div>
+          <h2 className="text-xl font-bold text-surface-text mb-2">Advance Batch</h2>
+          <p className="text-surface-muted text-sm leading-relaxed mb-6">
+            Move <strong className="text-surface-text">{row.species_name}</strong> from <strong>{currentStage}</strong> to <strong>{nextStageName}</strong>?
+          </p>
+          
+          {error && <div className="p-3 mb-4 bg-danger-dim text-danger text-sm rounded-lg text-left">{error}</div>}
+          
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleAdvance}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-bio-green text-surface-900 transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? 'Advancing...' : 'Confirm'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// CONTAMINATE BATCH MODAL
+// ─────────────────────────────────────────────────────────────
+
+function ContaminateBatchModal({
+  row,
+  onClose,
+  onSuccess,
+}: {
+  row: BatchRow
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [contamType, setContamType] = useState<'TRICH' | 'BACTERIA' | 'MOLD' | 'WET_ROT' | 'UNKNOWN'>('TRICH')
+  const [notes, setNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleContaminate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setIsSubmitting(true)
+    setError(null)
+    try {
+      const { contaminateBatch } = await import('../lib/api')
+      await contaminateBatch(row.id, contamType, undefined, notes || undefined)
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to mark contaminated')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-danger/30 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg text-danger">Report Contamination</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        
+        <form onSubmit={handleContaminate} className="p-5 space-y-4">
+          <p className="text-sm text-surface-muted">
+            Marking this <strong className="text-surface-text">{row.species_name}</strong> batch as contaminated will move it to the terminal state and remove it from active rotation.
+          </p>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Contaminant Type</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-danger transition-colors"
+              value={contamType}
+              onChange={(e) => setContamType(e.target.value as 'TRICH' | 'BACTERIA' | 'MOLD' | 'WET_ROT' | 'UNKNOWN')}
+            >
+              <option value="TRICH">Trichoderma (Green Mold)</option>
+              <option value="BACTERIA">Bacterial / Sour Rot</option>
+              <option value="MOLD">Other Mold (Cobweb/Neurospora)</option>
+              <option value="WET_ROT">Wet Rot</option>
+              <option value="UNKNOWN">Unknown</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Notes</label>
+            <textarea
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-danger transition-colors resize-none"
+              rows={3}
+              placeholder="E.g. found on bottom corner of bag..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-danger text-white transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? 'Reporting...' : 'Toss Batch'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// BATCH DETAIL SLIDE-IN SHEET
+// ─────────────────────────────────────────────────────────────
+
+function BatchDetailSheet({
+  row,
+  onClose,
+  onContaminate
+}: {
+  row: BatchRow
+  onClose: () => void
+  onContaminate: () => void
+}) {
+  const stage = humanizeStage(row.stage)
+  
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade_in">
+      <motion.div 
+        initial={{ x: '100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '100%' }}
+        transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+        className="w-full max-w-md h-full bg-surface-900 shadow-2xl flex flex-col border-l border-surface-border"
+      >
+        <div className="flex items-center justify-between p-4 border-b border-surface-border sticky top-0 bg-surface-900 z-10" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 1rem)' }}>
+          <div className="flex items-center gap-3 min-w-0">
+            <button onClick={onClose} className="p-2 -ml-2 text-surface-muted hover:text-surface-text transition-colors">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            <h2 className="font-semibold text-lg text-surface-text truncate">Batch {row.batch_id ?? `#${row.id}`}</h2>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 pb-20 space-y-6">
+          <div>
+            <span className="eyebrow-tag">{stage}</span>
+            <h1 className="mt-2 text-3xl font-bold text-surface-text">{row.species_name}</h1>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="lab-card p-4">
+              <div className="text-[11px] uppercase tracking-eyebrow text-surface-muted mb-1">Created</div>
+              <div className="font-mono text-sm text-surface-text">{formatDateShort(row.created_at)}</div>
+            </div>
+            <div className="lab-card p-4">
+              <div className="text-[11px] uppercase tracking-eyebrow text-surface-muted mb-1">Target</div>
+              <div className="font-mono text-sm text-surface-text">{formatDateShort(row.colonization_target || row.fruiting_target_end)}</div>
+            </div>
+          </div>
+
+          <div className="lab-card overflow-hidden">
+            <div className="p-4 border-b border-surface-border">
+              <h3 className="font-semibold text-surface-text">Lineage & Recipe</h3>
+            </div>
+            <div className="p-4 space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-surface-muted text-sm">Lineage Code</span>
+                <span className="font-mono text-sm text-surface-text">{row.lineage_id ? `#L-${row.lineage_id}` : 'None'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-surface-muted text-sm">Recipe</span>
+                <span className="font-mono text-sm text-surface-text">{row.recipe_id ? `Recipe #${row.recipe_id}` : 'Standard'}</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => {
+              onClose()
+              onContaminate()
+            }}
+            className="w-full py-4 rounded-xl border border-danger/30 text-danger font-medium hover:bg-danger/10 transition-colors"
+          >
+            Report Contamination
+          </button>
+        </div>
+      </motion.div>
     </div>
   )
 }

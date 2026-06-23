@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS species (
   common_name             TEXT NOT NULL,
   scientific_name         TEXT,
   -- Substrate preference
-  substrate_type          TEXT NOT NULL CHECK(substrate_type IN ('HWFP','CVG','GRAIN','MIXED')),
+  substrate_type          TEXT NOT NULL CHECK(substrate_type IN ('HWFP','CVG','GRAIN','MIXED','CUSTOM')),
   bulk_prep_method        TEXT NOT NULL DEFAULT 'PC'
                           CHECK(bulk_prep_method IN ('PC','PASTEURIZE','NONE')),
   -- Aggregate LC tracking (Q5: per-species, not per-jar)
@@ -139,6 +139,28 @@ CREATE TABLE IF NOT EXISTS genetic_material (
 );
 
 -- ─────────────────────────────────────────────────────────────
+-- SUBSTRATE RECIPES
+-- Named recipes decoupled from species (e.g. "HWFP + 10% Wheat Bran")
+-- ─────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS substrate_recipe (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT    NOT NULL UNIQUE,  -- e.g. "HWFP Base", "HWFP + Wheat Bran 10%"
+  notes        TEXT,
+  is_active    INTEGER NOT NULL DEFAULT 1,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS recipe_ingredient (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  recipe_id     INTEGER NOT NULL REFERENCES substrate_recipe(id) ON DELETE CASCADE,
+  ingredient    TEXT    NOT NULL,   -- e.g. "HWFP", "Wheat Bran", "Soy Hulls"
+  percentage    REAL,               -- % by dry weight
+  unit          TEXT,               -- e.g. "% by weight", "cups per bag"
+  notes         TEXT
+);
+
+-- ─────────────────────────────────────────────────────────────
 -- PRODUCTION PIPELINE
 -- ─────────────────────────────────────────────────────────────
 
@@ -183,6 +205,7 @@ CREATE TABLE IF NOT EXISTS batch (
   parent_batch_id   INTEGER REFERENCES batch(id),         -- G2G parent
   source_pc_run_id  INTEGER REFERENCES pc_run(id),        -- Which PC run
   source_genetic_id INTEGER REFERENCES genetic_material(id), -- Which LC
+  recipe_id         INTEGER REFERENCES substrate_recipe(id),  -- Substrate recipe used
   stage             TEXT    NOT NULL
                     CHECK(stage IN (
                       'GEN1_GRAIN','GEN2_GRAIN','BULK_BLOCK',
@@ -194,6 +217,9 @@ CREATE TABLE IF NOT EXISTS batch (
                       'HARVESTED','SPENT','CONTAMINATED','DISPOSED','EXPIRED'
                     )),
   quantity          INTEGER NOT NULL,
+  contamination_type TEXT CHECK(contamination_type IN ('TRICH','BACTERIA','MOLD','WET_ROT','UNKNOWN')),
+  contamination_qty  INTEGER,  -- How many bags contaminated (may be partial)
+  contaminated_at    TEXT,
   colonization_start   TEXT,
   colonization_target  TEXT,   -- start + species_profile.days_max (conservative)
   fruiting_start       TEXT,

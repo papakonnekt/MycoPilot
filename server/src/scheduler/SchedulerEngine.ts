@@ -309,6 +309,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('INOCULATE_GEN1', hw, demand.gen1BagsAdjusted),
           status: 'PENDING',
+          notes: `Scheduled to meet weekly target (${demand.weeklyBlocks} blocks) + fridge restock (${demand.gen2BagsToRestock} bags). Requires ${demand.gen1BagsAdjusted} Gen1 bags.`,
         }, hw, output);
       }
 
@@ -335,6 +336,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('G2G_TRANSFER', hw),
           status: 'PENDING',
+          notes: `Scheduled to produce ${gen2BagsToMake} Gen2 bags for bulk inoculation and fridge restocking.`,
         }, hw, output);
       }
     }
@@ -347,6 +349,7 @@ export class SchedulerEngine {
         speciesId: demand.speciesId,
         estimatedMins: estimateMins('MOVE_TO_FRIDGE', hw),
         status: 'PENDING',
+        notes: `Pulling ${demand.gen2BagsFromFridge} Gen2 bags from fridge buffer to meet bulk inoculation target without new production.`,
       }, hw, output);
     }
 
@@ -375,6 +378,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('INOCULATE_BULK', hw),
           status: 'PENDING',
+          notes: `Scheduled to inoculate ${demand.bulkBlocksNeeded} bulk blocks to meet target harvest goal.`,
         }, hw, output);
 
       } else if (species.bulkPrepMethod === 'PASTEURIZE') {
@@ -385,6 +389,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('PASTEURIZE_BULK_CVG', hw) + estimateMins('INOCULATE_BULK', hw),
           status: 'PENDING',
+          notes: `Scheduled to prepare and inoculate ${demand.bulkBlocksNeeded} pasteurized blocks to meet target harvest goal.`,
         }, hw, output);
 
       } else if (species.bulkPrepMethod === 'NONE') {
@@ -395,6 +400,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('LOAD_FRUITING_CHAMBER', hw),
           status: 'PENDING',
+          notes: `Scheduled to move ${demand.gen2BagsNewProduction} bags to fruiting chamber to meet target harvest goal.`,
         }, hw, output);
       }
     }
@@ -411,6 +417,7 @@ export class SchedulerEngine {
           speciesId: demand.speciesId,
           estimatedMins: estimateMins('MOVE_TO_FRIDGE', hw),
           status: 'PENDING',
+          notes: `Moving surplus Gen2 bags (${surplusGen2} bags) produced during G2G transfer to fridge buffer.`,
         }, hw, output);
       }
     }

@@ -9,6 +9,8 @@ import settingsRouter from './routes/settings';
 import inventoryRouter from './routes/inventory';
 import batchesRouter from './routes/batches';
 import speciesRouter from './routes/species';
+import recipesRouter from './routes/recipes';
+import analyticsRouter from './routes/analytics';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -42,6 +44,8 @@ app.use('/api/settings',  settingsRouter);
 app.use('/api/inventory', inventoryRouter);
 app.use('/api/batches',   batchesRouter);
 app.use('/api/species',   speciesRouter);
+app.use('/api/recipes',   recipesRouter);
+app.use('/api/analytics', analyticsRouter);
 
 // Health check
 app.get('/api/health', (_req, res) => {

@@ -41,6 +41,7 @@ import {
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
+import { Sparkline, type SparklineDataPoint } from '../components/Sparkline'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -763,6 +764,15 @@ function LineageChip({
   const beBarWidth =
     be == null ? 0 : Math.min(100, Math.max(0, (be / Math.max(targetBe, 0.01)) * 100))
 
+  let history: SparklineDataPoint[] = []
+  try {
+    if (lineage.history_json) {
+      history = JSON.parse(lineage.history_json)
+    }
+  } catch (err) {
+    // ignore
+  }
+
   return (
     <div
       className="rounded-xl px-3 py-2.5 min-w-0"
@@ -799,12 +809,11 @@ function LineageChip({
         >
           {be != null ? pct(be) : '—'}
         </span>
-        <span
-          className="text-[10px] font-mono"
-          style={{ color: 'var(--surface-muted)' }}
-        >
-          BE
-        </span>
+        {history.length > 1 && (
+          <div className="ml-auto opacity-80">
+            <Sparkline data={history} width={50} height={20} color={accentColor} />
+          </div>
+        )}
       </div>
       {be != null && (
         <div
@@ -844,6 +853,17 @@ function MobileLineageCard({
   const be = lineage.avg_be_90d
   const isFlagged =
     lineage.is_senescent || (be != null && be < minAcceptable)
+  const accentColor = isFlagged ? '#B23A2A' : 'var(--bio-green)'
+  
+  let history: SparklineDataPoint[] = []
+  if (lineage.history_json) {
+    try {
+      history = JSON.parse(lineage.history_json)
+    } catch {
+      // ignore
+    }
+  }
+
   return (
     <div
       className="snap-start shrink-0 w-56 rounded-2xl p-3 min-w-0"
@@ -866,11 +886,15 @@ function MobileLineageCard({
       >
         {originLabel(lineage.origin_type)} · gen {lineage.generation_count}
       </div>
-      <div
-        className="mt-2 font-sans font-bold text-2xl text-num"
-        style={{ color: 'var(--surface-text)' }}
-      >
-        {be != null ? pct(be) : '—'}
+      <div className="mt-2 flex items-baseline gap-2 min-w-0">
+        <span className="font-sans font-bold text-2xl text-num" style={{ color: 'var(--surface-text)' }}>
+          {be != null ? pct(be) : '—'}
+        </span>
+        {history.length > 1 && (
+          <div className="ml-auto opacity-80">
+            <Sparkline data={history} width={60} height={24} color={accentColor} />
+          </div>
+        )}
       </div>
       <div
         className="text-[10px] font-mono uppercase tracking-eyebrow mt-0.5"

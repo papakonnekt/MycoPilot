@@ -49,7 +49,8 @@ router.get('/incubating', (_req: Request, res: Response) => {
         ) AS pct_complete
       FROM batch b
       JOIN species s ON s.id = b.species_id
-      WHERE b.status = 'INCUBATING'
+      WHERE b.status IN ('INCUBATING', 'COLONIZED')
+        AND b.stage IN ('GEN1_GRAIN','GEN2_GRAIN','BULK_BLOCK')
       ORDER BY b.colonization_target ASC
     `).all();
 
@@ -59,7 +60,128 @@ router.get('/incubating', (_req: Request, res: Response) => {
   }
 });
 
-// ── POST /api/batches/:id/harvest ─────────────────────────────
+// ── GET /api/batches/forecast ─────────────────────────────────
+// Returns active FRUITING batches sorted by expected harvest date
+router.get('/forecast', (_req: Request, res: Response) => {
+  const db = getDb();
+  try {
+    const forecast = db.prepare(`
+      SELECT
+        b.id, b.batch_id, b.quantity, b.flush_count,
+        b.fruiting_start, b.fruiting_target_end,
+        s.common_name AS species_name,
+        CAST(julianday(b.fruiting_target_end) - julianday('now') AS INTEGER) AS days_to_harvest
+      FROM batch b
+      JOIN species s ON s.id = b.species_id
+      WHERE b.status = 'FRUITING'
+        AND b.fruiting_target_end IS NOT NULL
+      ORDER BY b.fruiting_target_end ASC
+    `).all();
+
+    res.json({ success: true, data: forecast });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+// ── GET /api/batches/:id/report ─────────────────────────────
+// Returns a printable HTML report for a batch
+router.get('/:id/report', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+
+  try {
+    const batch = db.prepare(`
+      SELECT b.*, s.common_name AS species_name, s.scientific_name,
+        l.lineage_code, l.generation_count
+      FROM batch b
+      JOIN species s ON s.id = b.species_id
+      LEFT JOIN lineage l ON l.id = b.lineage_id
+      WHERE b.id = ?
+    `).get(id) as any;
+
+    if (!batch) return res.status(404).send('Batch not found');
+
+    const tasks = db.prepare(`SELECT * FROM task WHERE batch_id = ? ORDER BY task_date ASC`).all(id) as any[];
+    const harvests = db.prepare(`SELECT * FROM harvest_record WHERE batch_id = ? ORDER BY flush_number ASC`).all(id) as any[];
+
+    const html = `
+<!doctype html>
+<html>
+<head>
+  <title>Batch Report - ${batch.batch_ref}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; color: #111; max-width: 800px; margin: 0 auto; padding: 2rem; }
+    h1 { margin: 0 0 0.5rem; font-size: 2rem; border-bottom: 2px solid #000; padding-bottom: 0.5rem; }
+    h2 { font-size: 1.2rem; margin-top: 2rem; border-bottom: 1px solid #ccc; padding-bottom: 0.25rem; }
+    .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 2rem; }
+    .meta div { background: #f5f5f5; padding: 1rem; border-radius: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
+    th { font-weight: 600; color: #555; }
+    .barcode { font-family: monospace; font-size: 1.5rem; letter-spacing: 2px; text-align: center; padding: 2rem; border: 2px dashed #ccc; margin-top: 2rem; }
+    @media print {
+      body { padding: 0; }
+      button { display: none; }
+    }
+  </style>
+</head>
+<body onload="window.print()">
+  <h1>Batch: ${batch.batch_ref}</h1>
+  <div class="meta">
+    <div>
+      <strong>Species:</strong> ${batch.species_name} <em>(${batch.scientific_name})</em><br>
+      <strong>Lineage:</strong> ${batch.lineage_code || 'N/A'} (Gen ${batch.generation_count || '?'})<br>
+      <strong>Stage:</strong> ${batch.stage || 'PENDING'}<br>
+    </div>
+    <div>
+      <strong>Created:</strong> ${batch.created_at?.split('T')[0]}<br>
+      <strong>Col. Target:</strong> ${batch.colonization_target || 'N/A'}<br>
+      <strong>Fruiting End:</strong> ${batch.fruiting_target_end || 'N/A'}<br>
+    </div>
+  </div>
+
+  <h2>Task History</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Task</th><th>Status</th><th>Notes</th></tr></thead>
+    <tbody>
+      ${tasks.map(t => `
+        <tr>
+          <td>${t.task_date}</td>
+          <td>${t.title}</td>
+          <td>${t.status}</td>
+          <td>${t.notes || ''}</td>
+        </tr>
+      `).join('')}
+    </tbody>
+  </table>
+
+  <h2>Harvest Records</h2>
+  <table>
+    <thead><tr><th>Date</th><th>Flush</th><th>Wet Weight (g)</th><th>BE</th></tr></thead>
+    <tbody>
+      ${harvests.length ? harvests.map(h => `
+        <tr>
+          <td>${h.harvest_date}</td>
+          <td>${h.flush_number}</td>
+          <td>${h.wet_weight_grams}g</td>
+          <td>${h.biological_efficiency ? (h.biological_efficiency * 100).toFixed(1) + '%' : '-'}</td>
+        </tr>
+      `).join('') : '<tr><td colspan="4">No harvests recorded yet.</td></tr>'}
+    </tbody>
+  </table>
+
+  <div class="barcode">*${batch.batch_ref}*</div>
+  <p style="text-align:center; color:#888; font-size:0.8rem; margin-top:2rem;">Generated by Myco Lab</p>
+</body>
+</html>
+    `;
+
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Failed to generate report');
+  }
+});
+
 // Log harvest weight for a fruiting block
 router.post('/:id/harvest', (req: Request, res: Response) => {
   const db = getDb();
@@ -237,7 +359,7 @@ router.put('/:id/progress', (req: Request, res: Response) => {
     const batch = db.prepare(`
       SELECT b.stage, sp.lc_to_gen1_days_max, sp.gen2_colonization_days_max, sp.bulk_colonization_days_max
       FROM batch b
-      JOIN species_profile sp ON b.species_id = sp.id
+      JOIN species_profile sp ON b.species_id = sp.species_id
       WHERE b.id = ?
     `).get(id) as any;
 
@@ -263,6 +385,133 @@ router.put('/:id/progress', (req: Request, res: Response) => {
     `).run(startStr, targetStr, id);
 
     res.json({ success: true, message: 'Progress updated' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/batches/:id/advance ──────────────────────────────
+// Auto-detects the next logical stage and advances the batch.
+router.put('/:id/advance', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+
+  try {
+    const batch = db.prepare(`SELECT * FROM batch WHERE id = ?`).get(id) as any;
+    if (!batch) return res.status(404).json({ success: false, error: 'Batch not found' });
+
+    const stage = batch.stage as string;
+    const status = batch.status as string;
+
+    let nextStage = stage;
+    let nextStatus = status;
+    let description = '';
+
+    if (stage === 'GEN1_GRAIN' && status === 'INCUBATING') {
+      nextStatus = 'COLONIZED';
+      description = 'Gen 1 Grain marked as Colonized';
+    } else if (stage === 'GEN1_GRAIN' && status === 'COLONIZED') {
+      nextStage = 'GEN2_GRAIN';
+      nextStatus = 'INCUBATING';
+      description = 'Gen 1 → Gen 2 Grain (G2G Transfer)';
+    } else if (stage === 'GEN2_GRAIN' && status === 'INCUBATING') {
+      nextStatus = 'COLONIZED';
+      description = 'Gen 2 Grain marked as Colonized';
+    } else if (stage === 'GEN2_GRAIN' && status === 'COLONIZED') {
+      nextStage = 'FRIDGE';
+      nextStatus = 'IN_FRIDGE';
+      description = 'Gen 2 Grain moved to Fridge Buffer';
+    } else if (stage === 'FRIDGE' || status === 'IN_FRIDGE') {
+      nextStage = 'BULK_BLOCK';
+      nextStatus = 'INCUBATING';
+      description = 'Pulled from Fridge → Inoculated as Bulk Block';
+    } else if (stage === 'BULK_BLOCK' && status === 'INCUBATING') {
+      nextStatus = 'COLONIZED';
+      description = 'Bulk Block marked as Fully Colonized';
+    } else if (stage === 'BULK_BLOCK' && status === 'COLONIZED') {
+      nextStage = 'FRUITING';
+      nextStatus = 'FRUITING';
+      description = 'Bulk Block moved to Fruiting';
+    } else if (stage === 'FRUITING') {
+      nextStatus = 'SPENT';
+      description = 'Fruiting block marked as Spent';
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: `No advancement path defined for stage=${stage}, status=${status}`,
+      });
+    }
+
+    const now = new Date().toISOString();
+    const updates: Record<string, any> = {
+      stage: nextStage,
+      status: nextStatus,
+      updated_at: now,
+    };
+
+    if (nextStage === 'FRUITING' && stage !== 'FRUITING') {
+      updates.fruiting_start = now;
+      const profile = db.prepare(`
+        SELECT fruiting_days_max FROM species_profile
+        WHERE species_id = ? AND effective_to IS NULL
+      `).get(batch.species_id) as any;
+      if (profile) {
+        const targetDate = new Date(Date.now() + (profile.fruiting_days_max ?? 14) * 86400000);
+        updates.fruiting_target_end = targetDate.toISOString();
+      }
+    }
+
+    if (nextStatus === 'COLONIZED' && !batch.colonization_start) {
+      updates.colonization_start = now;
+    }
+
+    const setClauses = Object.keys(updates).map(k => `${k} = @${k}`).join(', ');
+    db.prepare(`UPDATE batch SET ${setClauses} WHERE id = @id`).run({ ...updates, id });
+
+    res.json({
+      success: true,
+      message: description,
+      data: { previousStage: stage, previousStatus: status, nextStage, nextStatus, description },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/batches/:id/contaminate ─────────────────────────
+router.put('/:id/contaminate', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { contaminationType = 'UNKNOWN', quantity, notes } = req.body;
+
+  const validTypes = ['TRICH', 'BACTERIA', 'MOLD', 'WET_ROT', 'UNKNOWN'];
+  if (!validTypes.includes(contaminationType)) {
+    return res.status(400).json({ success: false, error: 'Invalid contamination type' });
+  }
+
+  try {
+    const batch = db.prepare(`SELECT * FROM batch WHERE id = ?`).get(id) as any;
+    if (!batch) return res.status(404).json({ success: false, error: 'Batch not found' });
+
+    const now = new Date().toISOString();
+    db.transaction(() => {
+      db.prepare(`
+        UPDATE batch SET
+          status = 'CONTAMINATED',
+          contamination_type = ?,
+          contamination_qty = ?,
+          contaminated_at = ?,
+          updated_at = ?
+        WHERE id = ?
+      `).run(contaminationType, quantity ?? batch.quantity, now, now, id);
+
+      db.prepare(`
+        INSERT INTO contam_log (batch_id, lineage_id, contam_type, contam_stage, notes)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(id, batch.lineage_id ?? null, contaminationType, batch.stage, notes ?? null);
+    })();
+
+    res.json({ success: true, message: `Batch ${batch.batch_id} marked as contaminated.` });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

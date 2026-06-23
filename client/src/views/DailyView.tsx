@@ -56,12 +56,13 @@ import {
   ApiError,
   completeTask,
   getTodayTasks,
-  markBatchSpent,
   type DailyViewPayload,
   type TaskRow,
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
+
+import { useInventoryAlerts } from '../hooks/useInventoryAlerts'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES — local to this view
@@ -263,19 +264,29 @@ function DailyViewReady({
   const [tasks, setTasks] = useState<TaskRow[]>(payload.tasks)
   const [toast, setToast] = useState<string | null>(null)
   const [contamTarget, setContamTarget] = useState<TaskRow | null>(null)
+  const [harvestTarget, setHarvestTarget] = useState<TaskRow | null>(null)
+  const { lowCount } = useInventoryAlerts()
 
   const groups = useMemo(() => groupTasks(tasks), [tasks])
-  const openCount = useMemo(() => tasks.filter(isOpen).length, [tasks])
+  const openTasks = useMemo(() => tasks.filter(isOpen), [tasks])
+  const openCount = openTasks.length
   const totalOpenMins = useMemo(
-    () =>
-      tasks
-        .filter(isOpen)
-        .reduce((s, t) => s + (t.estimated_mins ?? 0), 0),
-    [tasks],
+    () => openTasks.reduce((s, t) => s + (t.estimated_mins ?? 0), 0),
+    [openTasks],
   )
+  const topPriorityTask = useMemo(() => {
+    if (openTasks.length === 0) return null
+    const sorted = sortTasks([...openTasks])
+    return sorted[0]
+  }, [openTasks])
 
   const handleComplete = useCallback(
     async (task: TaskRow) => {
+      if (task.task_type === 'HARVEST') {
+        setHarvestTarget(task)
+        return
+      }
+
       const snapshot = tasks
       setTasks((prev) => prev.filter((t) => t.id !== task.id))
       try {
@@ -294,32 +305,6 @@ function DailyViewReady({
     },
     [tasks],
   )
-
-  const handleConfirmContam = useCallback(async () => {
-    const target = contamTarget
-    if (!target) return
-    if (target.batch_id == null) {
-      setContamTarget(null)
-      return
-    }
-    const snapshot = tasks
-    setTasks((prev) => prev.filter((t) => t.id !== target.id))
-    setContamTarget(null)
-    try {
-      await markBatchSpent(target.batch_id)
-      onReload()
-    } catch (err) {
-      setTasks(snapshot)
-      const message =
-        err instanceof ApiError
-          ? err.message
-          : err instanceof Error
-          ? err.message
-          : 'Could not mark batch spent.'
-      setToast(message)
-      window.setTimeout(() => setToast(null), 4000)
-    }
-  }, [contamTarget, onReload, tasks])
 
   return (
     <div className="relative">
@@ -361,20 +346,60 @@ function DailyViewReady({
           }
         />
 
+        {/* Inventory Banner */}
+        {lowCount > 0 && (
+          <div className="mt-4 px-3 min-w-0">
+            <div className="bg-danger/10 border border-danger/20 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="shrink-0 h-10 w-10 rounded-full bg-danger/20 text-danger flex items-center justify-center">
+                  <Warning size={20} weight="fill" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-danger">Inventory Alert</div>
+                  <div className="text-[12px] font-mono text-danger/80">
+                    {lowCount} item{lowCount !== 1 ? 's' : ''} running low. Check raw materials.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Top Priority Card */}
+        {topPriorityTask && (
+          <div className="mt-6 md:mt-8 px-3 min-w-0">
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <span className="text-[10px] uppercase tracking-eyebrow font-bold text-warn">Top Priority</span>
+            </div>
+            <TaskCard
+              task={topPriorityTask}
+              entryDelayMs={100}
+              onComplete={handleComplete}
+              onRequestContam={(t) => setContamTarget(t)}
+              isTopPriority={true}
+            />
+          </div>
+        )}
+
         {/* Groups */}
         {groups.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="mt-6 md:mt-8 space-y-6 md:space-y-9">
-            {groups.map((group, gi) => (
-              <TaskGroupSection
-                key={group.taskType}
-                group={group}
-                index={gi}
-                onComplete={handleComplete}
-                onRequestContam={(t) => setContamTarget(t)}
-              />
-            ))}
+            {groups.map((group, gi) => {
+              // exclude top priority task from groups so it's not duplicated
+              const groupTasks = group.tasks.filter(t => t.id !== topPriorityTask?.id)
+              if (groupTasks.length === 0) return null
+              return (
+                <TaskGroupSection
+                  key={group.taskType}
+                  group={{ ...group, tasks: groupTasks }}
+                  index={gi}
+                  onComplete={handleComplete}
+                  onRequestContam={(t) => setContamTarget(t)}
+                />
+              )
+            })}
           </div>
         )}
 
@@ -385,13 +410,26 @@ function DailyViewReady({
         </div>
       </motion.div>
 
-      {/* Confirm sheet — safe-area aware via inline style. */}
+      {/* Contaminate and Harvest modals */}
       <AnimatePresence>
         {contamTarget && (
-          <ContamConfirmSheet
+          <ContaminateTaskModal
             task={contamTarget}
-            onCancel={() => setContamTarget(null)}
-            onConfirm={handleConfirmContam}
+            onClose={() => setContamTarget(null)}
+            onSuccess={() => {
+              setContamTarget(null)
+              onReload()
+            }}
+          />
+        )}
+        {harvestTarget && (
+          <HarvestWeightModal
+            task={harvestTarget}
+            onClose={() => setHarvestTarget(null)}
+            onSuccess={() => {
+              setHarvestTarget(null)
+              onReload()
+            }}
           />
         )}
       </AnimatePresence>
@@ -495,11 +533,14 @@ function BudgetStrip({
             {formatMinutesShort(totalMins)} / {formatMinutesShort(budgetMins)}
           </span>
         </div>
-        <div className="progress-track mt-3">
-          <div
-            className={'progress-fill' + (isOverBudget ? ' progress-fill-danger' : pct > 75 ? ' progress-fill-warn' : '')}
-            style={{ width: `${pct}%` }}
-          />
+        <div className="progress-track mt-3 flex items-center justify-between">
+          <div className="flex-1 mr-4 bg-surface-900 rounded-full h-2 relative overflow-hidden">
+            <div
+              className={'absolute top-0 left-0 bottom-0 progress-fill' + (isOverBudget ? ' progress-fill-danger' : pct > 75 ? ' progress-fill-warn' : '')}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <span className="font-mono text-[11px] text-surface-text">{pct}% Load</span>
         </div>
         {warningCount > 0 && (
           <div className="mt-3 flex items-center gap-2 text-[12px] min-w-0" style={{ color: 'var(--warn)' }}>
@@ -571,11 +612,13 @@ function TaskCard({
   entryDelayMs,
   onComplete,
   onRequestContam,
+  isTopPriority = false,
 }: {
   task: TaskRow
   entryDelayMs: number
   onComplete: (task: TaskRow) => void
   onRequestContam: (task: TaskRow) => void
+  isTopPriority?: boolean
 }) {
   const reduceMotion = useReducedMotion()
 
@@ -591,6 +634,16 @@ function TaskCard({
     const dx = info.offset.x
     if (dx < -peekThreshold) setPeekX(-peekThreshold)
     else setPeekX(0)
+  }
+
+  // Urgency indicator
+  let urgencyColor = 'var(--surface-muted)'
+  if (task.is_overdue || task.status === 'OVER_BUDGET_WARNING' || task.status === 'FLAGGED') {
+    urgencyColor = 'var(--danger)'
+  } else if (task.status === 'IN_PROGRESS' || isTopPriority) {
+    urgencyColor = 'var(--warn)'
+  } else if (task.status === 'PENDING') {
+    urgencyColor = '#fff'
   }
 
   return (
@@ -631,18 +684,18 @@ function TaskCard({
         </div>
       )}
 
-      <div className="lab-card">
+      <div className={`lab-card ${isTopPriority ? 'ring-1 ring-warn/30' : ''}`}>
         <div className="p-4 md:p-5 min-h-[88px]">
           <div className="flex items-start gap-3 md:gap-4 min-w-0">
             {/* Text column */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap min-w-0">
-                <StatusDot status={task.status} />
+                <span className="h-2 w-2 rounded-full shrink-0" style={{ background: urgencyColor, boxShadow: `0 0 6px ${urgencyColor}` }} />
                 <span className="text-[10px] uppercase tracking-eyebrow font-medium" style={{ color: 'var(--surface-muted)' }}>
                   {humanizeTaskStatus(task.status)}
                 </span>
                 {task.is_overdue ? (
-                  <span className="text-[10px] uppercase tracking-eyebrow font-semibold" style={{ color: 'var(--warn)' }}>
+                  <span className="text-[10px] uppercase tracking-eyebrow font-semibold" style={{ color: 'var(--danger)' }}>
                     Overdue
                   </span>
                 ) : null}
@@ -673,6 +726,11 @@ function TaskCard({
                   </>
                 ) : null}
               </div>
+              {task.notes && (
+                <div className="mt-2 text-sm italic" style={{ color: 'var(--surface-muted)' }}>
+                  {task.notes}
+                </div>
+              )}
             </div>
 
             {/* Massive Complete button */}
@@ -746,101 +804,6 @@ function CompleteButton({
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// CONTAM CONFIRM SHEET
-// ─────────────────────────────────────────────────────────────
-
-function ContamConfirmSheet({
-  task,
-  onCancel,
-  onConfirm,
-}: {
-  task: TaskRow
-  onCancel: () => void
-  onConfirm: () => void
-}) {
-  const reduceMotion = useReducedMotion()
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="contam-title"
-    >
-      <motion.button
-        type="button"
-        aria-label="Cancel"
-        onClick={onCancel}
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
-        className="absolute inset-0 backdrop-blur-sm"
-        style={{ background: 'rgba(8, 15, 10, 0.75)' }}
-      />
-
-      <motion.div
-        initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 24, scale: 0.98 }}
-        transition={{ duration: 0.45, ease: [0.32, 0.72, 0, 1] }}
-        className="relative w-full md:max-w-md mx-3 md:mx-4"
-        style={{ marginBottom: 'calc(max(env(safe-area-inset-bottom,0px),16px) + 0.75rem)' }}
-      >
-        <div className="server-modal-shell">
-          <div className="flex items-start justify-between gap-3 min-w-0 mb-4">
-            <div className="min-w-0 flex-1">
-              <span className="eyebrow-tag" style={{ background: 'var(--danger-dim)', color: 'var(--danger)' }}>
-                Contam · Spent
-              </span>
-              <h2 id="contam-title" className="mt-3 font-sans font-bold text-2xl leading-tight break-words text-balance" style={{ color: 'var(--surface-text)' }}>
-                Mark batch as spent?
-              </h2>
-              <p className="mt-2 text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
-                Cancels all pending tasks for the batch and sets it to{' '}
-                <span className="font-mono text-[12px]" style={{ color: 'var(--danger)' }}>SPENT</span>.
-                Cannot be undone from the bench.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onCancel}
-              aria-label="Close"
-              className="shrink-0 -mt-1 -mr-1 min-h-[44px] min-w-[44px] h-10 w-10 rounded-full flex items-center justify-center transition-colors duration-300"
-              style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--surface-muted)' }}
-            >
-              <X size={16} weight="regular" />
-            </button>
-          </div>
-
-          <div className="rounded-2xl px-4 py-3 mb-5" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="text-[10px] uppercase tracking-eyebrow mb-1" style={{ color: 'var(--surface-muted)' }}>Task</div>
-            <div className="text-[15px] font-medium leading-snug break-words" style={{ color: 'var(--surface-text)' }}>{task.title}</div>
-            {task.species_name && (
-              <div className="mt-1 text-[12px] break-words" style={{ color: 'var(--surface-muted)' }}>
-                {task.species_name}
-                {task.batch_ref && (
-                  <> · <span className="font-mono uppercase" style={{ color: 'var(--bio-green)' }}>{task.batch_ref}</span></>
-                )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2 sm:gap-3">
-            <button type="button" onClick={onCancel} className="btn-ghost min-h-[44px]">
-              Cancel
-            </button>
-            <button type="button" onClick={onConfirm} className="btn-danger min-h-[44px] justify-center">
-              <Trash size={16} weight="regular" />
-              <span>Mark spent</span>
-            </button>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  )
-}
 
 // ─────────────────────────────────────────────────────────────
 // SKELETON
@@ -1033,13 +996,249 @@ function humanizeTaskStatus(status: string): string {
     .join(' ')
 }
 
-function StatusDot({ status }: { status: string }) {
-  let bg = 'rgba(255,255,255,0.2)'
-  if (status === 'PENDING')             bg = 'rgba(122, 171, 131, 0.7)'
-  if (status === 'IN_PROGRESS')         bg = 'var(--warn)'
-  if (status === 'OVER_BUDGET_WARNING') bg = 'var(--warn)'
-  if (status === 'FLAGGED')             bg = 'var(--warn)'
-  if (status === 'COMPLETE')            bg = 'var(--bio-green)'
-  if (status === 'SKIPPED')             bg = 'rgba(255,255,255,0.12)'
-  return <span className="h-2 w-2 rounded-full shrink-0" style={{ background: bg }} />
+// ─────────────────────────────────────────────────────────────
+// HARVEST WEIGHT MODAL
+// ─────────────────────────────────────────────────────────────
+
+export function HarvestWeightModal({
+  task,
+  onClose,
+  onSuccess,
+}: {
+  task: TaskRow
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [wetWeight, setWetWeight] = useState<string>('')
+  const [dryWeight, setDryWeight] = useState<string>('')
+  const [blockWeight, setBlockWeight] = useState<string>('')
+  const [notes, setNotes] = useState<string>('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!task.batch_id) return
+    setIsSubmitting(true)
+    setError(null)
+    
+    try {
+      const { logHarvest, completeTask } = await import('../lib/api')
+      await logHarvest(task.batch_id, {
+        flushNumber: task.flush_number || 1,
+        wetWeightGrams: Number(wetWeight),
+        dryWeightGrams: dryWeight ? Number(dryWeight) : undefined,
+        blockWeightGrams: blockWeight ? Number(blockWeight) : undefined,
+        notes: notes || undefined
+      })
+      await completeTask(task.id)
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to log harvest')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-surface-border rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg text-surface-text">Log Harvest</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <X size={16} weight="regular" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4">
+          <div className="mb-2">
+            <span className="eyebrow-tag">{task.species_name}</span>
+            <div className="font-mono text-sm text-surface-muted mt-1">
+              Flush {task.flush_number || 1} • Batch {task.batch_ref}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Wet Weight (g) *</label>
+            <input
+              type="number"
+              step="0.1"
+              required
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={wetWeight}
+              onChange={(e) => setWetWeight(e.target.value)}
+              placeholder="e.g. 250"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Dry Weight (g) <span className="text-surface-muted font-normal text-[11px] ml-1">(Optional)</span></label>
+            <input
+              type="number"
+              step="0.1"
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={dryWeight}
+              onChange={(e) => setDryWeight(e.target.value)}
+              placeholder="e.g. 22.5"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Block Weight (g) <span className="text-surface-muted font-normal text-[11px] ml-1">(Optional, for BE calculation)</span></label>
+            <input
+              type="number"
+              step="1"
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-bio-green transition-colors"
+              value={blockWeight}
+              onChange={(e) => setBlockWeight(e.target.value)}
+              placeholder="e.g. 2000"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Notes <span className="text-surface-muted font-normal text-[11px] ml-1">(Optional)</span></label>
+            <textarea
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-bio-green transition-colors resize-none"
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="e.g. Beautiful clusters, slightly dry"
+            />
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !wetWeight}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-bio-green text-surface-900 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? 'Saving...' : 'Log Harvest & Complete Task'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// CONTAMINATE TASK MODAL
+// ─────────────────────────────────────────────────────────────
+
+export function ContaminateTaskModal({
+  task,
+  onClose,
+  onSuccess,
+}: {
+  task: TaskRow
+  onClose: () => void
+  onSuccess: () => void
+}) {
+  const [contamType, setContamType] = useState<'TRICH' | 'BACTERIA' | 'MOLD' | 'WET_ROT' | 'UNKNOWN'>('TRICH')
+  const [notes, setNotes] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleContaminate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!task.batch_id) return
+    setIsSubmitting(true)
+    setError(null)
+    
+    try {
+      const { contaminateBatch } = await import('../lib/api')
+      await contaminateBatch(task.batch_id, contamType, undefined, notes || undefined)
+      onSuccess()
+    } catch (err: any) {
+      setError(err.message || 'Failed to mark contaminated')
+      setIsSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade_in">
+      <div className="w-full max-w-md bg-surface-900 border border-danger/30 rounded-2xl shadow-xl overflow-hidden flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-surface-border">
+          <h2 className="font-semibold text-lg text-danger">Report Contamination</h2>
+          <button onClick={onClose} className="p-2 text-surface-muted hover:text-surface-text transition-colors">
+            <X size={16} weight="regular" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleContaminate} className="p-5 space-y-4">
+          <div className="rounded-2xl px-4 py-3 mb-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="text-[10px] uppercase tracking-eyebrow mb-1" style={{ color: 'var(--surface-muted)' }}>Task</div>
+            <div className="text-[15px] font-medium leading-snug break-words" style={{ color: 'var(--surface-text)' }}>{task.title}</div>
+            {task.species_name && (
+              <div className="mt-1 text-[12px] break-words" style={{ color: 'var(--surface-muted)' }}>
+                {task.species_name}
+                {task.batch_ref && (
+                  <> · <span className="font-mono uppercase" style={{ color: 'var(--bio-green)' }}>{task.batch_ref}</span></>
+                )}
+              </div>
+            )}
+          </div>
+
+          <p className="text-sm text-surface-muted">
+            This will mark the batch as contaminated, cancel its pending tasks, and set it to terminal state.
+          </p>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Contaminant Type</label>
+            <select
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-danger transition-colors"
+              value={contamType}
+              onChange={(e) => setContamType(e.target.value as 'TRICH' | 'BACTERIA' | 'MOLD' | 'WET_ROT' | 'UNKNOWN')}
+            >
+              <option value="TRICH">Trichoderma (Green Mold)</option>
+              <option value="BACTERIA">Bacterial / Sour Rot</option>
+              <option value="MOLD">Other Mold (Cobweb/Neurospora)</option>
+              <option value="WET_ROT">Wet Rot</option>
+              <option value="UNKNOWN">Unknown</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Notes</label>
+            <textarea
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-danger transition-colors resize-none"
+              rows={3}
+              placeholder="E.g. found on bottom corner..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </div>
+
+          {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
+
+          <div className="pt-2 flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1 py-3 rounded-full font-semibold text-sm bg-danger text-white transition-colors disabled:opacity-50"
+            >
+              {isSubmitting ? 'Reporting...' : 'Toss Batch'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
 }

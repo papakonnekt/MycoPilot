@@ -46,6 +46,10 @@ import {
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
+import { HarvestForecastWidget } from '../components/HarvestForecastWidget'
+import { PerformanceMatrixWidget } from '../components/PerformanceMatrixWidget'
+import { PcRunHistoryWidget } from '../components/PcRunHistoryWidget'
+import { CapacityPlannerWidget } from '../components/CapacityPlannerWidget'
 import { WifiHigh } from 'phosphor-react'
 
 // ─────────────────────────────────────────────────────────────
@@ -303,7 +307,7 @@ function SettingsReady({
     try {
       const result = await runScheduler()
       setRunStatus('saved')
-      setToast(`Scheduler ran · ${result.tasksCreated} tasks · ${result.warnings.length} warnings`)
+      setToast(`Scheduler ran · ${result.tasksCreated} tasks · ${result.warnings?.length || 0} warnings`)
       window.setTimeout(() => setToast(null), 3500)
       onReload()
     } catch (err) {
@@ -425,6 +429,13 @@ function SettingsReady({
               <span>Change</span>
             </button>
           </div>
+        </div>
+
+        <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4 min-w-0">
+          <HarvestForecastWidget />
+          <PerformanceMatrixWidget />
+          <PcRunHistoryWidget />
+          <CapacityPlannerWidget />
         </div>
 
         <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 min-w-0">

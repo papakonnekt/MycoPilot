@@ -12,6 +12,7 @@ import {
   RawMaterial,
   MaterialUsageRecipe,
 } from '../../../shared/types';
+import { addDays, formatISO } from 'date-fns';
 
 const router = Router();
 
@@ -278,6 +279,60 @@ router.get('/warnings', (_req: Request, res: Response) => {
     });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── GET /api/scheduler/capacity ───────────────────────────────
+// Get PC usage and task minutes over the scheduling horizon
+router.get('/capacity', (req: Request, res: Response) => {
+  const db = getDb();
+  try {
+    const hw = db.prepare(`SELECT * FROM hardware_settings WHERE is_active = 1 LIMIT 1`).get() as any;
+    if (!hw) {
+      return res.json({ success: true, data: [] });
+    }
+    const maxPcRunsPerDay = hw.max_pc_runs_per_day;
+    const dailyAvailableMins = hw.daily_available_mins;
+    
+    // PC Runs
+    const pcRuns = db.prepare(`
+      SELECT scheduled_date, COUNT(*) as run_count
+      FROM pc_run
+      WHERE scheduled_date >= date('now')
+      GROUP BY scheduled_date
+    `).all() as any[];
+
+    // Tasks (minutes)
+    const tasks = db.prepare(`
+      SELECT task_date, SUM(estimated_mins) as total_mins
+      FROM task
+      WHERE task_date >= date('now')
+      GROUP BY task_date
+    `).all() as any[];
+
+    const pcMap = new Map(pcRuns.map(r => [r.scheduled_date, r.run_count]));
+    const taskMap = new Map(tasks.map(t => [t.task_date, t.total_mins]));
+
+    const horizon = hw.scheduling_horizon_days || 28;
+    const todayDate = new Date();
+    
+    const data = [];
+    for (let i = 0; i < horizon; i++) {
+      const d = addDays(todayDate, i);
+      const dateStr = formatISO(d, { representation: 'date' });
+      data.push({
+        date: dateStr,
+        pc_runs: pcMap.get(dateStr) || 0,
+        max_pc_runs: maxPcRunsPerDay,
+        task_mins: taskMap.get(dateStr) || 0,
+        max_task_mins: dailyAvailableMins,
+      });
+    }
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Failed to get scheduler capacity:', error);
+    res.status(500).json({ success: false, error: 'Failed to get scheduler capacity' });
   }
 });
 

@@ -180,6 +180,7 @@ export interface BatchRow {
   id: number
   batch_id: string
   species_id: number
+  recipe_id: number | null
   lineage_id: number | null
   parent_batch_id: number | null
   source_pc_run_id: number | null
@@ -368,6 +369,11 @@ export interface SettingsPayload {
 export function setupSettings(
   payload: {
     hardware: Partial<HardwareSettingsRow>,
+    recipes?: Array<{
+      name: string,
+      notes?: string,
+      ingredients?: Array<{ ingredient: string, percentage?: number, unit?: string }>
+    }>,
     species: Array<{
       commonName: string,
       substrateType?: string,
@@ -466,6 +472,7 @@ export interface LineageRow {
   created_at: string
   total_harvests?: number
   avg_be_90d?: number | null
+  history_json?: string
 }
 
 /** /scheduler/warnings payload */
@@ -698,11 +705,12 @@ export function getSchedulerWarnings(): Promise<SchedulerWarningsPayload> {
 }
 
 /** POST /scheduler/run */
-export function runScheduler(): Promise<{
-  tasksCreated: number
-  warnings: string[]
-}> {
-  return request('/scheduler/run', { method: 'POST' })
+export function runScheduler(): Promise<{ success: boolean; tasksCreated?: number; warnings?: SchedulerWarning[] }> {
+  return request<{ success: boolean; tasksCreated?: number; warnings?: SchedulerWarning[] }>('/scheduler/run', { method: 'POST' })
+}
+
+export function getSchedulerCapacity(): Promise<{ success: boolean; data: CapacityDay[] }> {
+  return request<{ success: boolean; data: CapacityDay[] }>('/scheduler/capacity')
 }
 
 // ── CRUD Helpers ──────────────────────────────────────────────
@@ -742,3 +750,156 @@ export function addFridgeItem(data: any): Promise<{ id: number }> {
 export function updateFridgeItem(id: number | string, data: any): Promise<void> {
   return request(`/inventory/fridge/${id}`, { method: 'PUT', body: JSON.stringify(data) })
 }
+
+// ─────────────────────────────────────────────────────────────
+// RECIPE TYPES & ENDPOINTS
+// ─────────────────────────────────────────────────────────────
+
+export interface RecipeIngredient {
+  id?: number
+  ingredient: string
+  percentage?: number | null
+  unit?: string | null
+  notes?: string | null
+}
+
+export interface RecipeRow {
+  id: number
+  name: string
+  notes: string | null
+  is_active: number | boolean
+  created_at: string
+  ingredients: RecipeIngredient[]
+}
+
+/** GET /recipes */
+export function getRecipes(): Promise<RecipeRow[]> {
+  return request<RecipeRow[]>('/recipes')
+}
+
+/** GET /recipes/:id */
+export function getRecipe(id: number | string): Promise<RecipeRow> {
+  return request<RecipeRow>(`/recipes/${id}`)
+}
+
+/** POST /recipes */
+export function createRecipe(data: {
+  name: string
+  notes?: string
+  ingredients: RecipeIngredient[]
+}): Promise<{ id: number }> {
+  return request('/recipes', { method: 'POST', body: JSON.stringify(data) })
+}
+
+/** PUT /recipes/:id */
+export function updateRecipe(id: number | string, data: {
+  name: string
+  notes?: string
+  ingredients: RecipeIngredient[]
+}): Promise<{ success: boolean; message: string }> {
+  return request(`/recipes/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+}
+
+/** DELETE /recipes/:id */
+export function deleteRecipe(id: number | string): Promise<{ success: boolean; message: string }> {
+  return request(`/recipes/${id}`, { method: 'DELETE' })
+}
+
+// ─────────────────────────────────────────────────────────────
+// BATCH ACTIONS (advance, contaminate, harvest)
+// ─────────────────────────────────────────────────────────────
+
+export interface AdvanceBatchResult {
+  previousStage: string
+  previousStatus: string
+  nextStage: string
+  nextStatus: string
+  description: string
+}
+
+/** PUT /batches/:id/advance — auto-detects next stage, returns what will happen */
+export function advanceBatch(id: number | string): Promise<{
+  success: boolean
+  message: string
+  data: AdvanceBatchResult
+}> {
+  return request(`/batches/${id}/advance`, { method: 'PUT' })
+}
+
+/** PUT /batches/:id/contaminate */
+export function contaminateBatch(
+  id: number | string,
+  contaminationType: 'TRICH' | 'BACTERIA' | 'MOLD' | 'WET_ROT' | 'UNKNOWN',
+  quantity?: number,
+  notes?: string,
+): Promise<{ success: boolean; message: string }> {
+  return request(`/batches/${id}/contaminate`, {
+    method: 'PUT',
+    body: JSON.stringify({ contaminationType, quantity, notes }),
+  })
+}
+
+/** POST /batches/:id/harvest */
+export function logHarvest(
+  id: number | string,
+  data: {
+    flushNumber: number
+    wetWeightGrams: number
+    dryWeightGrams?: number
+    blockWeightGrams?: number
+    notes?: string
+  },
+): Promise<{ success: boolean; message: string; biological_efficiency?: number }> {
+  return request(`/batches/${id}/harvest`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
+// HARVEST FORECAST
+// ─────────────────────────────────────────────────────────────
+
+export interface ForecastEntry {
+  id: number
+  batch_id: string
+  species_name: string
+  fruiting_target_end: string
+  flush_count: number
+  quantity: number
+  days_to_harvest: number | null
+}
+
+/** GET /batches/forecast — active FRUITING batches with estimated harvest dates */
+export function getHarvestForecast(): Promise<ForecastEntry[]> {
+  return request<ForecastEntry[]>('/batches/forecast')
+}
+
+export interface PerformanceMatrixRow {
+  species_id: number;
+  species_name: string;
+  recipe_id: number | null;
+  recipe_name: string | null;
+  avg_biological_efficiency: number;
+  harvest_count: number;
+}
+
+/** GET /analytics/performance — average BE grouped by species and recipe */
+export function getPerformanceMatrix(): Promise<PerformanceMatrixRow[]> {
+  return request<PerformanceMatrixRow[]>('/analytics/performance')
+}
+
+export interface PcRunAnalyticsRow {
+  pc_run_id: number;
+  run_date: string;
+  run_type: string;
+  bag_count: number;
+  contam_count: number;
+  contam_rate: number;
+}
+
+/** GET /analytics/pc-runs — PC run history and contam rate */
+export function getPcRunAnalytics(): Promise<PcRunAnalyticsRow[]> {
+  return request<PcRunAnalyticsRow[]>('/analytics/pc-runs')
+}
+export interface CapacityDay { date: string; pc_runs: number; max_pc_runs: number; task_mins: number; max_task_mins: number; }

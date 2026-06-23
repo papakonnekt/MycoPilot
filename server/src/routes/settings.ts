@@ -60,11 +60,30 @@ router.post('/setup', (req: Request, res: Response) => {
     `);
 
     db.transaction(() => {
+      // ── Hardware ─────────────────────────────────────────────
       insertHw.run(s.hardware);
 
+      // ── Recipes (optional, sent from onboarding step 2) ──────
+      const insertRecipe = db.prepare(`
+        INSERT OR IGNORE INTO substrate_recipe (name, notes) VALUES (?, ?)
+      `);
+      const insertIngredient = db.prepare(`
+        INSERT INTO recipe_ingredient (recipe_id, ingredient, percentage, unit)
+        VALUES (?, ?, ?, ?)
+      `);
+
+      for (const recipe of (s.recipes ?? [])) {
+        const rr = insertRecipe.run(recipe.name, recipe.notes ?? null);
+        const recipeId = rr.lastInsertRowid;
+        for (const ing of (recipe.ingredients ?? [])) {
+          insertIngredient.run(recipeId, ing.ingredient, ing.percentage ?? null, ing.unit ?? null);
+        }
+      }
+
+      // Prepare species statements
       const insertSpecies = db.prepare(`
-        INSERT INTO species (common_name, substrate_type, bulk_prep_method)
-        VALUES (@commonName, @substrateType, @bulkPrepMethod)
+        INSERT INTO species (common_name, substrate_type, bulk_prep_method, lc_volume_ml_available)
+        VALUES (@commonName, 'CUSTOM', @bulkPrepMethod, @lcVolumeMl)
       `);
       
       const insertProfile = db.prepare(`
@@ -81,7 +100,7 @@ router.post('/setup', (req: Request, res: Response) => {
       `);
 
       const insertTargets = db.prepare(`
-        INSERT INTO weekly_targets (species_id, target_blocks) VALUES (?, ?)
+        INSERT INTO weekly_targets (species_id, target_blocks_per_wk) VALUES (?, ?)
       `);
 
       const insertFridge = db.prepare(`
@@ -89,8 +108,8 @@ router.post('/setup', (req: Request, res: Response) => {
       `);
 
       const insertLineage = db.prepare(`
-        INSERT INTO lineage (species_id, lineage_code, origin_type, generation_number)
-        VALUES (?, ?, 'SPORE/CULTURE', 0)
+        INSERT INTO lineage (species_id, lineage_code, origin_type, generation_count)
+        VALUES (?, ?, 'COMMERCIAL_LC', 0)
       `);
 
       const insertRawMaterial = db.prepare(`
@@ -104,11 +123,11 @@ router.post('/setup', (req: Request, res: Response) => {
       `);
 
       for (const sp of s.species) {
-        // 1. Insert Species
+        // 1. Insert Species (substrate type is now decoupled — stored as CUSTOM)
         const result = insertSpecies.run({
           commonName: sp.commonName,
-          substrateType: sp.substrateType || 'HWFP',
-          bulkPrepMethod: sp.bulkPrepMethod || 'PC'
+          bulkPrepMethod: sp.bulkPrepMethod || 'PC',
+          lcVolumeMl: sp.startingLcVolumeMl || 0,
         });
         const speciesId = result.lastInsertRowid;
         
@@ -128,45 +147,41 @@ router.post('/setup', (req: Request, res: Response) => {
         if (sp.weeklyTargetBlocks) insertTargets.run(speciesId, sp.weeklyTargetBlocks);
         if (sp.fridgeTargetBags && sp.fridgeMinBags) insertFridge.run(speciesId, sp.fridgeMinBags, sp.fridgeTargetBags);
 
-        // 4. Lineage Auto-Generation (e.g. "Blue Oyster" -> "BO-01")
+        // 4. Lineage Auto-Generation (e.g. "Blue Oyster" → "BO-01")
         const initials = sp.commonName.split(' ').map((w: string) => w[0]).join('').toUpperCase();
         const lineageCode = `${initials}-01`;
         const lineageResult = insertLineage.run(speciesId, lineageCode);
         const lineageId = lineageResult.lastInsertRowid;
 
         // 5. Raw Materials (Inventory)
-        if (sp.startingLcVolumeMl > 0) {
-          insertRawMaterial.run(`Liquid Culture (${lineageCode})`, 'mL', sp.startingLcVolumeMl, `Starting LC volume from onboarding`);
-        }
-        
-        if (sp.sterilizedGrains) {
+        if (sp.sterilizedGrains && sp.sterilizedGrains.length > 0) {
           let totalLbs = 0;
-          let notesArr = [];
+          const notesArr: string[] = [];
           for (const item of sp.sterilizedGrains) {
             totalLbs += item.weightLbs * item.quantity;
             notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
           }
           if (totalLbs > 0) {
-            insertRawMaterial.run(`Sterilized Grain (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate bags: ${notesArr.join(', ')}`);
+            insertRawMaterial.run(`Sterilized Grain (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate: ${notesArr.join(', ')}`);
           }
         }
 
-        if (sp.sterilizedSubstrate) {
+        if (sp.sterilizedSubstrate && sp.sterilizedSubstrate.length > 0) {
           let totalLbs = 0;
-          let notesArr = [];
+          const notesArr: string[] = [];
           for (const item of sp.sterilizedSubstrate) {
             totalLbs += item.weightLbs * item.quantity;
             notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
           }
           if (totalLbs > 0) {
-            insertRawMaterial.run(`Sterilized Substrate (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate bags: ${notesArr.join(', ')}`);
+            insertRawMaterial.run(`Sterilized Substrate (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-use: ${notesArr.join(', ')}`);
           }
         }
 
-        // 6. Incubating Spawn
+        // 6. Incubating Spawn (pre-existing batches from onboarding step 7)
         if (sp.incubating && sp.incubating.length > 0) {
           for (const item of sp.incubating) {
-            const bId = `BATCH-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const bId = `BATCH-INIT-${Date.now()}-${Math.floor(Math.random() * 9999)}`;
             
             let totalDays = 14;
             if (item.stage === 'GEN1_GRAIN') totalDays = sp.lcToGen1DaysMax ?? 21;
@@ -177,8 +192,8 @@ router.post('/setup', (req: Request, res: Response) => {
             const daysAgo = (pct / 100) * totalDays;
             const targetDaysFromNow = totalDays - daysAgo;
 
-            const startStr = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000).toISOString();
-            const targetStr = new Date(Date.now() + targetDaysFromNow * 24 * 60 * 60 * 1000).toISOString();
+            const startStr = new Date(Date.now() - daysAgo * 86400000).toISOString();
+            const targetStr = new Date(Date.now() + targetDaysFromNow * 86400000).toISOString();
 
             insertBatch.run(bId, speciesId, lineageId, item.stage, item.quantity, startStr, targetStr);
           }
@@ -193,6 +208,7 @@ router.post('/setup', (req: Request, res: Response) => {
 });
 
 // ── PUT /api/settings/hardware ────────────────────────────────
+
 router.put('/hardware', (req: Request, res: Response) => {
   const db = getDb();
   const s = req.body;

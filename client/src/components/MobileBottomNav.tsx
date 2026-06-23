@@ -23,6 +23,7 @@ import {
   GitBranch,
   GearSix,
 } from 'phosphor-react'
+import { useInventoryAlerts } from '../hooks/useInventoryAlerts'
 
 interface TabDef {
   to: string
@@ -52,6 +53,7 @@ export function MobileBottomNav() {
   const navigate = useNavigate()
   const [sheetOpen, setSheetOpen] = useState(false)
   const activeIndex = findActiveIndex(location.pathname)
+  const { lowCount } = useInventoryAlerts()
 
   const tabRefs = useRef<Array<HTMLAnchorElement | null>>([])
   const railRef = useRef<HTMLDivElement | null>(null)
@@ -155,6 +157,9 @@ export function MobileBottomNav() {
                 aria-expanded={sheetOpen}
                 aria-label="More navigation"
               >
+                {lowCount > 0 && (
+                  <div className="absolute top-2 right-4 w-2.5 h-2.5 bg-danger rounded-full border border-surface-900" />
+                )}
                 <span
                   className="flex flex-col items-center gap-[3px] px-1 min-w-0 transition-colors duration-300"
                   style={{
@@ -236,6 +241,7 @@ export function MobileBottomNav() {
                   Icon={GearSix}
                   label="Settings"
                   hint="Hardware + targets"
+                  badgeCount={lowCount}
                 />
               </div>
             </div>
@@ -252,9 +258,10 @@ interface SheetItemProps {
   Icon: typeof House
   label: string
   hint: string
+  badgeCount?: number
 }
 
-function SheetItem({ onClick, active, Icon, label, hint }: SheetItemProps) {
+function SheetItem({ onClick, active, Icon, label, hint, badgeCount }: SheetItemProps) {
   return (
     <button
       type="button"
@@ -268,10 +275,17 @@ function SheetItem({ onClick, active, Icon, label, hint }: SheetItemProps) {
     >
       <div className="flex items-center justify-between min-w-0">
         <Icon size={22} weight="regular" />
-        <span
-          className="h-1.5 w-1.5 rounded-full shrink-0"
-          style={{ background: active ? '#34d468' : 'rgba(52, 212, 104, 0.4)' }}
-        />
+        <div className="flex items-center gap-2">
+          {badgeCount != null && badgeCount > 0 && (
+            <div className="bg-danger text-surface-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+              {badgeCount}
+            </div>
+          )}
+          <span
+            className="h-1.5 w-1.5 rounded-full shrink-0"
+            style={{ background: active ? '#34d468' : 'rgba(52, 212, 104, 0.4)' }}
+          />
+        </div>
       </div>
       <div className="mt-3 font-sans text-xl font-semibold leading-none break-words">{label}</div>
       <div

@@ -19,6 +19,7 @@ import {
   GearSix,
 } from 'phosphor-react'
 import { BrandGlyph } from './BrandGlyph'
+import { useInventoryAlerts } from '../hooks/useInventoryAlerts'
 
 interface RailItem {
   to: string
@@ -53,6 +54,7 @@ export function DesktopRail() {
     top: 0,
     height: 44,
   })
+  const { lowCount } = useInventoryAlerts()
 
   const recalc = () => {
     const el = itemRefs.current[activeIndex]
@@ -111,28 +113,33 @@ export function DesktopRail() {
               key={item.to}
               to={item.to}
               end={item.end}
-              ref={(el) => {
-                itemRefs.current[i] = el
-              }}
-              className="relative z-10 h-11 rounded-2xl flex items-center gap-3 px-3 my-0.5"
+              ref={(el) => { itemRefs.current[i] = el }}
+              className="relative z-10 flex items-center justify-between px-3 h-11 rounded-2xl transition-all duration-200 group active:scale-[0.98]"
+              aria-label={item.label}
               aria-current={isActive ? 'page' : undefined}
             >
-              <item.Icon
-                size={20}
-                weight={isActive ? 'fill' : 'regular'}
-                className={
-                  'transition-colors duration-450 ease-fluid ' +
-                  (isActive ? 'text-white' : 'text-graphite-500')
-                }
-              />
-              <span
-                className={
-                  'text-[14px] transition-colors duration-450 ease-fluid ' +
-                  (isActive ? 'text-white font-medium' : 'text-graphite-600')
-                }
-              >
-                {item.label}
-              </span>
+              <div className="flex items-center gap-3">
+                <item.Icon
+                  size={20}
+                  weight={isActive ? 'fill' : 'regular'}
+                  style={{ color: isActive ? '#080f0a' : '#7aab83' }}
+                  className="transition-colors duration-300"
+                />
+                <span
+                  className="font-medium tracking-wide transition-colors duration-300"
+                  style={{
+                    fontSize: '14px',
+                    color: isActive ? '#080f0a' : '#e8f0e9',
+                  }}
+                >
+                  {item.label}
+                </span>
+              </div>
+              {item.to === '/settings' && lowCount > 0 && (
+                <div className="bg-danger text-surface-900 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                  {lowCount}
+                </div>
+              )}
             </NavLink>
           )
         })}

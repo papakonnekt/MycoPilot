@@ -1,417 +1,866 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { setupSettings } from '../lib/api'
-import { CaretRight, Check, CaretLeft, Info } from 'phosphor-react'
+import type { RecipeIngredient } from '../lib/api'
+import {
+  CaretRight, CaretLeft, Check, Info, Plus, Trash,
+  Flask, Spinner as SpinnerIcon
+} from 'phosphor-react'
 
-// Helpful tooltip/explanation component
-function HelpCard({ title, children }: { title: string, children: React.ReactNode }) {
+// ─────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────
+
+interface Recipe {
+  name: string
+  notes: string
+  ingredients: RecipeIngredient[]
+}
+
+interface SpeciesEntry {
+  commonName: string
+  maxGenerations: number
+  bulkPrepMethod: string
+  lcToGen1DaysMin: number
+  lcToGen1DaysMax: number
+  gen2ColonizationDaysMin: number
+  gen2ColonizationDaysMax: number
+  bulkColonizationDaysMin: number
+  bulkColonizationDaysMax: number
+  fruitingDaysMin: number
+  fruitingDaysMax: number
+  weeklyTargetBlocks: number
+  fridgeTargetBags: number
+  fridgeMinBags: number
+  startingLcVolumeMl: number
+  sterilizedGrains: { weightLbs: number; quantity: number }[]
+  sterilizedSubstrate: { weightLbs: number; quantity: number }[]
+  incubating: { stage: string; quantity: number; colonizationPct: number; speciesIdx: number }[]
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sub-components
+// ─────────────────────────────────────────────────────────────
+
+function HelpCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-surface-800 rounded-lg p-4 border border-surface-border mt-2">
+    <div className="bg-surface-800 rounded-xl p-4 border border-surface-border">
       <div className="flex items-center gap-2 mb-2">
-        <Info size={16} weight="bold" className="text-bio-green" />
-        <h4 className="font-semibold text-sm text-surface-text">{title}</h4>
+        <Info size={15} weight="bold" className="text-bio-green shrink-0" />
+        <h4 className="font-semibold text-[13px] text-surface-text">{title}</h4>
       </div>
-      <div className="text-[13px] text-surface-muted leading-relaxed">
-        {children}
+      <div className="text-[13px] text-surface-muted leading-relaxed">{children}</div>
+    </div>
+  )
+}
+
+function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-[13px] font-semibold mb-1.5" style={{ color: 'var(--surface-muted)' }}>
+        {label}
+      </label>
+      {children}
+      {hint && <p className="text-[12px] text-surface-muted mt-1.5 leading-relaxed">{hint}</p>}
+    </div>
+  )
+}
+
+function DayRange({
+  label,
+  min, max,
+  onMin, onMax,
+}: {
+  label: string
+  min: number; max: number
+  onMin: (v: number) => void
+  onMax: (v: number) => void
+}) {
+  return (
+    <div>
+      <p className="text-[12px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--surface-muted)' }}>
+        {label}
+      </p>
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-surface-muted w-8">From</span>
+        <input
+          type="number" min="0" max="365"
+          className="lab-input flex-1 text-center"
+          value={min}
+          onChange={e => onMin(parseInt(e.target.value) || 0)}
+        />
+        <span className="text-[12px] text-surface-muted w-4 text-center">to</span>
+        <input
+          type="number" min="0" max="365"
+          className="lab-input flex-1 text-center"
+          value={max}
+          onChange={e => onMax(parseInt(e.target.value) || 0)}
+        />
+        <span className="text-[12px] text-surface-muted w-8">days</span>
       </div>
     </div>
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Step labels
+// ─────────────────────────────────────────────────────────────
+
+const STEPS = [
+  { label: 'Hardware', icon: '⚙️' },
+  { label: 'Recipes', icon: '🧪' },
+  { label: 'Species', icon: '🍄' },
+  { label: 'Timelines', icon: '⏱' },
+  { label: 'Targets', icon: '🎯' },
+  { label: 'Inventory', icon: '📦' },
+  { label: 'Incubating', icon: '🌱' },
+]
+
+// ─────────────────────────────────────────────────────────────
+// Main component
+// ─────────────────────────────────────────────────────────────
+
 export default function OnboardingView({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState<number>(1)
+  const [step, setStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [slideDir, setSlideDir] = useState<1 | -1>(1)
 
-  // -- Step 1: Hardware --
+  // ── Step 1: Hardware ────────────────────────────────────────
   const [hardware, setHardware] = useState({
     maxPcRunsPerDay: 1,
     maxBagsPerPcRun: 4,
     grainCycleMins: 150,
-    grainPrepCoolMins: 90,
     bulkCycleMins: 150,
-    bulkPrepCoolMins: 90,
     microlabCycleMins: 30,
-    microlabPrepCoolMins: 45,
     dailyAvailableMins: 480,
     schedulingHorizonDays: 28,
   })
 
-  // -- Step 2: Species --
-  const [species, setSpecies] = useState({
-    commonName: 'Blue Oyster',
-    substrateType: 'HWFP',
-    bulkPrepMethod: 'PC',
-    maxGenerations: 3,
-  })
+  // ── Step 2: Recipes ─────────────────────────────────────────
+  const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [newRecipeName, setNewRecipeName] = useState('')
 
-  // -- Step 3: Timelines --
-  const [timelines, setTimelines] = useState({
-    lcToGen1DaysMin: 14, lcToGen1DaysMax: 21,
-    gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
-    bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
-    fruitingDaysMin: 7, fruitingDaysMax: 14,
-  })
+  // ── Step 3: Species ─────────────────────────────────────────
+  const [speciesList, setSpeciesList] = useState<SpeciesEntry[]>([
+    {
+      commonName: '',
+      maxGenerations: 2,
+      bulkPrepMethod: 'PC',
+      lcToGen1DaysMin: 14, lcToGen1DaysMax: 21,
+      gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
+      bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
+      fruitingDaysMin: 7, fruitingDaysMax: 14,
+      weeklyTargetBlocks: 5,
+      fridgeTargetBags: 8,
+      fridgeMinBags: 2,
+      startingLcVolumeMl: 100,
+      sterilizedGrains: [],
+      sterilizedSubstrate: [],
+      incubating: [],
+    }
+  ])
+  const [activeSpeciesIdx, setActiveSpeciesIdx] = useState(0)
 
-  // -- Step 4: Targets --
-  const [targets, setTargets] = useState({
-    weeklyTargetBlocks: 10,
-    fridgeTargetBags: 10,
-    fridgeMinBags: 2,
-  })
+  // ── Global incubating list (step 7) ─────────────────────────
+  const [incubating, setIncubating] = useState<
+    { speciesIdx: number; stage: string; quantity: number; colonizationPct: number }[]
+  >([])
 
-  // -- Step 5: Inventory --
-  const [inventory, setInventory] = useState({
-    startingLcVolumeMl: 200,
-    sterilizedGrains: [] as { weightLbs: number, quantity: number }[],
-    sterilizedSubstrate: [] as { weightLbs: number, quantity: number }[],
-  })
-
-  // -- Step 6: Incubating --
-  const [incubating, setIncubating] = useState([] as { stage: string, quantity: number, colonizationPct: number }[])
-
-  const nextStep = () => {
-    window.scrollTo(0, 0);
-    setStep(s => Math.min(s + 1, 6))
+  // ── Navigation ───────────────────────────────────────────────
+  const goNext = () => {
+    window.scrollTo(0, 0)
+    setSlideDir(1)
+    setStep(s => Math.min(s + 1, 7))
   }
-  const prevStep = () => {
-    window.scrollTo(0, 0);
+  const goBack = () => {
+    window.scrollTo(0, 0)
+    setSlideDir(-1)
     setStep(s => Math.max(s - 1, 1))
   }
 
-  const handleAddGrain = () => setInventory(i => ({ ...i, sterilizedGrains: [...i.sterilizedGrains, { weightLbs: 5, quantity: 1 }] }))
-  const handleAddSubstrate = () => setInventory(i => ({ ...i, sterilizedSubstrate: [...i.sterilizedSubstrate, { weightLbs: 5, quantity: 1 }] }))
-  const handleAddIncubating = () => setIncubating(i => [...i, { stage: 'GEN1_GRAIN', quantity: 1, colonizationPct: 0 }])
+  // ── Recipe helpers ───────────────────────────────────────────
+  const addRecipe = () => {
+    const name = newRecipeName.trim()
+    if (!name) return
+    setRecipes(r => [...r, { name, notes: '', ingredients: [{ ingredient: '', percentage: undefined, unit: '% by weight' }] }])
+    setNewRecipeName('')
+  }
+  const removeRecipe = (idx: number) => setRecipes(r => r.filter((_, i) => i !== idx))
+  const updateRecipe = (idx: number, patch: Partial<Recipe>) =>
+    setRecipes(r => r.map((rec, i) => (i === idx ? { ...rec, ...patch } : rec)))
+  const addIngredient = (rIdx: number) =>
+    setRecipes(r => r.map((rec, i) =>
+      i === rIdx ? { ...rec, ingredients: [...rec.ingredients, { ingredient: '', percentage: undefined, unit: '% by weight' }] } : rec
+    ))
+  const removeIngredient = (rIdx: number, iIdx: number) =>
+    setRecipes(r => r.map((rec, i) =>
+      i === rIdx ? { ...rec, ingredients: rec.ingredients.filter((_, j) => j !== iIdx) } : rec
+    ))
+  const updateIngredient = (rIdx: number, iIdx: number, patch: Partial<RecipeIngredient>) =>
+    setRecipes(r => r.map((rec, i) =>
+      i === rIdx
+        ? { ...rec, ingredients: rec.ingredients.map((ing, j) => (j === iIdx ? { ...ing, ...patch } : ing)) }
+        : rec
+    ))
 
+  // ── Species helpers ──────────────────────────────────────────
+  const sp = speciesList[activeSpeciesIdx]
+  const setSp = (patch: Partial<SpeciesEntry>) =>
+    setSpeciesList(list => list.map((s, i) => (i === activeSpeciesIdx ? { ...s, ...patch } : s)))
+
+  const addSpecies = () => {
+    setSpeciesList(list => [
+      ...list,
+      {
+        commonName: '', maxGenerations: 2, bulkPrepMethod: 'PC',
+        lcToGen1DaysMin: 14, lcToGen1DaysMax: 21,
+        gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
+        bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
+        fruitingDaysMin: 7, fruitingDaysMax: 14,
+        weeklyTargetBlocks: 5, fridgeTargetBags: 8, fridgeMinBags: 2,
+        startingLcVolumeMl: 100,
+        sterilizedGrains: [], sterilizedSubstrate: [], incubating: [],
+      }
+    ])
+    setActiveSpeciesIdx(speciesList.length)
+  }
+
+  const applyPreset = (preset: 'oyster' | 'lionsmane' | 'shiitake') => {
+    const presets = {
+      oyster:    { lcToGen1DaysMin: 10, lcToGen1DaysMax: 14, gen2ColonizationDaysMin: 10, gen2ColonizationDaysMax: 14, bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21, fruitingDaysMin: 7, fruitingDaysMax: 14 },
+      lionsmane: { lcToGen1DaysMin: 14, lcToGen1DaysMax: 21, gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21, bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 28, fruitingDaysMin: 14, fruitingDaysMax: 28 },
+      shiitake:  { lcToGen1DaysMin: 14, lcToGen1DaysMax: 30, gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 30, bulkColonizationDaysMin: 30, bulkColonizationDaysMax: 60, fruitingDaysMin: 14, fruitingDaysMax: 30 },
+    }
+    setSp(presets[preset])
+  }
+
+  // ── Submit ───────────────────────────────────────────────────
   const handleSubmit = async () => {
+    const valid = speciesList.every(s => s.commonName.trim())
+    if (!valid) { setError('Every species needs a name.'); return }
+
     setIsSubmitting(true)
     setError(null)
+
     try {
+      // Merge global incubating list back into each species
+      const speciesWithIncubating = speciesList.map((s, idx) => ({
+        ...s,
+        incubating: incubating.filter(i => i.speciesIdx === idx).map(i => ({
+          stage: i.stage, quantity: i.quantity, colonizationPct: i.colonizationPct,
+        })),
+      }))
+
       await setupSettings({
         hardware: {
           max_pc_runs_per_day: hardware.maxPcRunsPerDay,
           max_bags_per_pc_run: hardware.maxBagsPerPcRun,
           grain_cycle_mins: hardware.grainCycleMins,
-          grain_prep_cool_mins: hardware.grainPrepCoolMins,
+          grain_prep_cool_mins: 1440, // 24h cool — passive, doesn't block PC
           bulk_cycle_mins: hardware.bulkCycleMins,
-          bulk_prep_cool_mins: hardware.bulkPrepCoolMins,
+          bulk_prep_cool_mins: 1440,
           microlab_cycle_mins: hardware.microlabCycleMins,
-          microlab_prep_cool_mins: hardware.microlabPrepCoolMins,
+          microlab_prep_cool_mins: 1440,
           daily_available_mins: hardware.dailyAvailableMins,
           scheduling_horizon_days: hardware.schedulingHorizonDays,
-        },
-        species: [{
-          ...species,
-          ...timelines,
-          ...targets,
-          ...inventory,
-          incubating
-        }]
-      })
+        } as any,
+        recipes: recipes.filter(r => r.name.trim()),
+        species: speciesWithIncubating.map(s => ({
+          commonName: s.commonName,
+          bulkPrepMethod: s.bulkPrepMethod,
+          maxGenerations: s.maxGenerations,
+          lcToGen1DaysMin: s.lcToGen1DaysMin,
+          lcToGen1DaysMax: s.lcToGen1DaysMax,
+          gen2ColonizationDaysMin: s.gen2ColonizationDaysMin,
+          gen2ColonizationDaysMax: s.gen2ColonizationDaysMax,
+          bulkColonizationDaysMin: s.bulkColonizationDaysMin,
+          bulkColonizationDaysMax: s.bulkColonizationDaysMax,
+          fruitingDaysMin: s.fruitingDaysMin,
+          fruitingDaysMax: s.fruitingDaysMax,
+          weeklyTargetBlocks: s.weeklyTargetBlocks,
+          fridgeTargetBags: s.fridgeTargetBags,
+          fridgeMinBags: s.fridgeMinBags,
+          startingLcVolumeMl: s.startingLcVolumeMl,
+          sterilizedGrains: s.sterilizedGrains,
+          sterilizedSubstrate: s.sterilizedSubstrate,
+          incubating: s.incubating,
+        })),
+      } as any)
       onComplete()
     } catch (err: any) {
-      setError(err.message || 'Failed to complete setup.')
+      setError(err.message || 'Setup failed. Check your inputs and try again.')
       setIsSubmitting(false)
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Render
+  // ─────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-surface-900 animate-rise_in overflow-y-auto">
-      <div className="flex-1 flex flex-col max-w-xl mx-auto w-full px-4 pt-16 pb-24">
-        
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
-            {[1,2,3,4,5,6].map(i => (
-              <div key={i} className={`h-1.5 flex-1 rounded-full ${step >= i ? 'bg-bio-green' : 'bg-surface-800'}`} />
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-surface-900"
+      style={{ overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}
+    >
+      {/* Scrollable content area */}
+      <div className="flex-1 flex flex-col max-w-xl mx-auto w-full px-4 pt-12 pb-32">
+
+        {/* Progress bar + title */}
+        <div className="mb-6">
+          <div className="flex items-center gap-1 mb-4">
+            {STEPS.map((_, i) => (
+              <div
+                key={i}
+                className={`h-1 flex-1 rounded-full transition-all duration-300 ${step > i ? 'bg-bio-green' : step === i + 1 ? 'bg-bio-green opacity-50' : 'bg-surface-800'}`}
+              />
             ))}
           </div>
-          <h1 className="text-3xl font-sans font-bold leading-tight" style={{ color: 'var(--surface-text)' }}>
-            {step === 1 && "Hardware & Sterilization"}
-            {step === 2 && "Species & Genetics"}
-            {step === 3 && "Biological Timelines"}
-            {step === 4 && "Production Targets"}
-            {step === 5 && "Current Inventory"}
-            {step === 6 && "Incubating Spawn"}
-          </h1>
-          <p className="mt-2 text-[15px]" style={{ color: 'var(--surface-muted)' }}>
-            Step {step} of 6
-          </p>
+          <div className="flex items-baseline gap-3">
+            <span className="text-3xl">{STEPS[step - 1].icon}</span>
+            <div>
+              <h1 className="text-2xl font-bold text-surface-text leading-tight">
+                {STEPS[step - 1].label}
+              </h1>
+              <p className="text-[13px] text-surface-muted mt-0.5">Step {step} of {STEPS.length}</p>
+            </div>
+          </div>
         </div>
 
+        {/* Step content */}
         <AnimatePresence mode="wait">
-          <motion.div 
+          <motion.div
             key={step}
-            initial={{ opacity: 0, x: 20 }} 
-            animate={{ opacity: 1, x: 0 }} 
-            exit={{ opacity: 0, x: -20 }}
+            initial={{ opacity: 0, x: slideDir * 30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -slideDir * 30 }}
             transition={{ duration: 0.2 }}
             className="flex-1 flex flex-col"
           >
-            {/* ── STEP 1: HARDWARE ── */}
+
+            {/* ── STEP 1: HARDWARE ─────────────────────────── */}
             {step === 1 && (
-              <div className="space-y-6">
-                <HelpCard title="What is this?">
-                  This helps the scheduling engine know how much sterilization capacity you have. 
-                  A "PC" is a Pressure Cooker (or sterilizer).
+              <div className="space-y-4">
+                <HelpCard title="Your Pressure Cooker Setup">
+                  Tell the engine how much sterilization capacity you have. Cool times are automatic
+                  (24 hours, passive) — bags cool while you do other things. The PC is free again
+                  ~30 minutes after you finish.
                 </HelpCard>
-                
-                <div className="lab-card p-5 space-y-4">
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Max PC Runs per day</label>
-                    <input type="number" min="1" className="lab-input w-full" value={hardware.maxPcRunsPerDay} onChange={e => setHardware({...hardware, maxPcRunsPerDay: parseInt(e.target.value) || 1})} />
-                    <p className="text-xs text-surface-muted mt-1">How many times a day are you willing to run your pressure cooker?</p>
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Max Bags per PC run</label>
-                    <input type="number" min="1" className="lab-input w-full" value={hardware.maxBagsPerPcRun} onChange={e => setHardware({...hardware, maxBagsPerPcRun: parseInt(e.target.value) || 1})} />
-                    <p className="text-xs text-surface-muted mt-1">How many bags can fit inside your pressure cooker at once?</p>
-                  </div>
+
+                <div className="lab-card p-5 space-y-5">
                   <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Grain Cycle (mins)</label>
-                      <input type="number" className="lab-input w-full" value={hardware.grainCycleMins} onChange={e => setHardware({...hardware, grainCycleMins: parseInt(e.target.value) || 0})} />
+                    <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?">
+                      <input type="number" min="1" className="lab-input w-full"
+                        value={hardware.maxPcRunsPerDay}
+                        onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: parseInt(e.target.value) || 1 })} />
+                    </FieldGroup>
+                    <FieldGroup label="Max Bags / Run" hint="How many bags fit at once?">
+                      <input type="number" min="1" className="lab-input w-full"
+                        value={hardware.maxBagsPerPcRun}
+                        onChange={e => setHardware({ ...hardware, maxBagsPerPcRun: parseInt(e.target.value) || 1 })} />
+                    </FieldGroup>
+                  </div>
+
+                  <div>
+                    <p className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--surface-muted)' }}>
+                      Sterilization Cycle Times
+                    </p>
+                    <div className="space-y-3">
+                      <FieldGroup label="Grain Cycle (minutes)" hint="Time at pressure for grain bags">
+                        <input type="number" min="0" className="lab-input w-full"
+                          value={hardware.grainCycleMins}
+                          onChange={e => setHardware({ ...hardware, grainCycleMins: parseInt(e.target.value) || 0 })} />
+                      </FieldGroup>
+                      <FieldGroup label="Bulk Substrate Cycle (minutes)" hint="Time at pressure for bulk blocks">
+                        <input type="number" min="0" className="lab-input w-full"
+                          value={hardware.bulkCycleMins}
+                          onChange={e => setHardware({ ...hardware, bulkCycleMins: parseInt(e.target.value) || 0 })} />
+                      </FieldGroup>
+                      <FieldGroup label="Micro-Lab Cycle (minutes)" hint="Time for LC jars, agar plates, etc.">
+                        <input type="number" min="0" className="lab-input w-full"
+                          value={hardware.microlabCycleMins}
+                          onChange={e => setHardware({ ...hardware, microlabCycleMins: parseInt(e.target.value) || 0 })} />
+                      </FieldGroup>
                     </div>
-                    <div>
-                      <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Grain Cool (mins)</label>
-                      <input type="number" className="lab-input w-full" value={hardware.grainPrepCoolMins} onChange={e => setHardware({...hardware, grainPrepCoolMins: parseInt(e.target.value) || 0})} />
-                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--surface-muted)' }}>
+                      Daily Budget
+                    </p>
+                    <FieldGroup label="Available Lab Time / Day (minutes)" hint="How many minutes a day can you spend in the lab? 480 = 8 hrs">
+                      <input type="number" min="30" className="lab-input w-full"
+                        value={hardware.dailyAvailableMins}
+                        onChange={e => setHardware({ ...hardware, dailyAvailableMins: parseInt(e.target.value) || 480 })} />
+                    </FieldGroup>
                   </div>
                 </div>
               </div>
             )}
 
-            {/* ── STEP 2: SPECIES ── */}
+            {/* ── STEP 2: RECIPES ──────────────────────────── */}
             {step === 2 && (
-              <div className="space-y-6">
-                <HelpCard title="First Species Setup">
-                  We'll start by setting up one species (like Blue Oyster or Lion's Mane). You can add more later. 
-                  <br/><br/>
-                  <b>G2G Transfers:</b> Grain-to-Grain transfers allow you to multiply your spawn exponentially. 
-                  Taking 1 master bag to make 10 bags is 1 generation. Doing it again makes 100 bags (2 generations).
-                  Limit this to avoid senescence (aging out).
+              <div className="space-y-4">
+                <HelpCard title="Substrate Recipes">
+                  Define the mixes you use — these are <strong>independent of species</strong>.
+                  Later, you can track which recipe each batch uses and compare yields
+                  (e.g. "HWFP Base vs. HWFP + 10% Wheat Bran").
+                  <br /><br />
+                  You can skip this and add recipes later in Settings.
                 </HelpCard>
-                
-                <div className="lab-card p-5 space-y-4">
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Common Name</label>
-                    <input type="text" className="lab-input w-full" value={species.commonName} onChange={e => setSpecies({...species, commonName: e.target.value})} placeholder="e.g. Blue Oyster" />
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Substrate Type</label>
-                    <select className="lab-input w-full" value={species.substrateType} onChange={e => setSpecies({...species, substrateType: e.target.value})}>
-                      <option value="HWFP">HWFP (Hardwood Fuel Pellets + Soy Hulls)</option>
-                      <option value="CVG">CVG (Coco Coir + Vermiculite + Gypsum)</option>
-                      <option value="STRAW">Straw</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>How many times do you want to do Grain-to-Grain (G2G)?</label>
-                    <input type="number" min="0" max="5" className="lab-input w-full" value={species.maxGenerations} onChange={e => setSpecies({...species, maxGenerations: parseInt(e.target.value) || 0})} />
-                    <p className="text-xs text-surface-muted mt-1">Recommended: 2 or 3. 0 means you only inoculate from Liquid Culture.</p>
-                  </div>
-                </div>
-              </div>
-            )}
 
-            {/* ── STEP 3: TIMELINES ── */}
-            {step === 3 && (
-              <div className="space-y-6">
-                <HelpCard title="Growth Speeds">
-                  How many days does it usually take this species to grow at each stage? 
-                  Provide a minimum (fastest) and maximum (slowest) number of days. It is normal for this to be a wide range (e.g., 2 to 45 days).
-                </HelpCard>
-                
-                <div className="flex gap-2 pb-2 overflow-x-auto hide-scrollbar">
-                  <button onClick={() => setTimelines({
-                    lcToGen1DaysMin: 10, lcToGen1DaysMax: 14,
-                    gen2ColonizationDaysMin: 10, gen2ColonizationDaysMax: 14,
-                    bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
-                    fruitingDaysMin: 7, fruitingDaysMax: 14,
-                  })} className="shrink-0 text-xs bg-surface-800 text-bio-green px-3 py-1.5 rounded-full hover:bg-surface-700 transition-colors">
-                    Oyster Preset
-                  </button>
-                  <button onClick={() => setTimelines({
-                    lcToGen1DaysMin: 14, lcToGen1DaysMax: 21,
-                    gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 21,
-                    bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 28,
-                    fruitingDaysMin: 14, fruitingDaysMax: 28,
-                  })} className="shrink-0 text-xs bg-surface-800 text-bio-green px-3 py-1.5 rounded-full hover:bg-surface-700 transition-colors">
-                    Lion's Mane Preset
-                  </button>
-                  <button onClick={() => setTimelines({
-                    lcToGen1DaysMin: 14, lcToGen1DaysMax: 30,
-                    gen2ColonizationDaysMin: 14, gen2ColonizationDaysMax: 30,
-                    bulkColonizationDaysMin: 30, bulkColonizationDaysMax: 60,
-                    fruitingDaysMin: 14, fruitingDaysMax: 30,
-                  })} className="shrink-0 text-xs bg-surface-800 text-bio-green px-3 py-1.5 rounded-full hover:bg-surface-700 transition-colors">
-                    Shiitake Preset
-                  </button>
-                </div>
-
-                <div className="lab-card p-5 space-y-4">
-                  <div>
-                    <h3 className="text-[13px] font-semibold mb-2" style={{ color: 'var(--surface-muted)' }}>Liquid Culture to Gen 1 Grain Colonization</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-surface-muted w-8">From</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Min" value={timelines.lcToGen1DaysMin} onChange={e => setTimelines({...timelines, lcToGen1DaysMin: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-4 text-center">to</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Max" value={timelines.lcToGen1DaysMax} onChange={e => setTimelines({...timelines, lcToGen1DaysMax: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-8">days</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-[13px] font-semibold mb-2" style={{ color: 'var(--surface-muted)' }}>Gen 2 Grain Colonization</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-surface-muted w-8">From</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Min" value={timelines.gen2ColonizationDaysMin} onChange={e => setTimelines({...timelines, gen2ColonizationDaysMin: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-4 text-center">to</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Max" value={timelines.gen2ColonizationDaysMax} onChange={e => setTimelines({...timelines, gen2ColonizationDaysMax: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-8">days</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-[13px] font-semibold mb-2" style={{ color: 'var(--surface-muted)' }}>Bulk Substrate Colonization</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-surface-muted w-8">From</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Min" value={timelines.bulkColonizationDaysMin} onChange={e => setTimelines({...timelines, bulkColonizationDaysMin: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-4 text-center">to</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Max" value={timelines.bulkColonizationDaysMax} onChange={e => setTimelines({...timelines, bulkColonizationDaysMax: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-8">days</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="text-[13px] font-semibold mb-2" style={{ color: 'var(--surface-muted)' }}>Fruiting (Pinning to Harvest)</h3>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-surface-muted w-8">From</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Min" value={timelines.fruitingDaysMin} onChange={e => setTimelines({...timelines, fruitingDaysMin: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-4 text-center">to</span>
-                      <input type="number" min="0" max="100" className="lab-input flex-1" placeholder="Max" value={timelines.fruitingDaysMax} onChange={e => setTimelines({...timelines, fruitingDaysMax: parseInt(e.target.value) || 0})} />
-                      <span className="text-xs text-surface-muted w-8">days</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 4: TARGETS ── */}
-            {step === 4 && (
-              <div className="space-y-6">
-                <HelpCard title="Production Goals">
-                  The scheduling engine will work backwards from your weekly targets to tell you what tasks to do each day. 
-                  Fridge buffers ensure you always have fully colonized grain ready to go when you want to make bulk blocks.
-                </HelpCard>
-                
-                <div className="lab-card p-5 space-y-4">
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Weekly Target Blocks</label>
-                    <input type="number" min="0" className="lab-input w-full" value={targets.weeklyTargetBlocks} onChange={e => setTargets({...targets, weeklyTargetBlocks: parseInt(e.target.value) || 0})} />
-                    <p className="text-xs text-surface-muted mt-1">How many bulk fruiting blocks do you want to harvest per week?</p>
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Target Fridge Buffer (Grain Bags)</label>
-                    <input type="number" min="0" className="lab-input w-full" value={targets.fridgeTargetBags} onChange={e => setTargets({...targets, fridgeTargetBags: parseInt(e.target.value) || 0})} />
-                    <p className="text-xs text-surface-muted mt-1">Ideal number of fully colonized grain bags resting in the fridge.</p>
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Minimum Fridge Buffer (Grain Bags)</label>
-                    <input type="number" min="0" className="lab-input w-full" value={targets.fridgeMinBags} onChange={e => setTargets({...targets, fridgeMinBags: parseInt(e.target.value) || 0})} />
-                    <p className="text-xs text-surface-muted mt-1">If the fridge drops below this number, the app flags an urgent shortage.</p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 5: INVENTORY ── */}
-            {step === 5 && (
-              <div className="space-y-6">
-                <HelpCard title="Current Available Materials">
-                  Let's log any Liquid Culture syringes/jars you have, and any un-inoculated bags of grains or substrate you have already sterilized and ready to use. 
-                  (If you don't have any, just skip this step).
-                </HelpCard>
-                
-                <div className="space-y-4">
-                  <div className="lab-card p-4">
-                    <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Liquid Culture (mL)</label>
-                    <input type="number" min="0" className="lab-input w-full" value={inventory.startingLcVolumeMl} onChange={e => setInventory({...inventory, startingLcVolumeMl: parseInt(e.target.value) || 0})} />
-                    <p className="text-xs text-surface-muted mt-1">1 syringe is typically 10mL.</p>
-                  </div>
-
-                  <div className="lab-card p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="block text-[13px] font-semibold" style={{ color: 'var(--surface-muted)' }}>Sterilized Grain Bags (Ready to inoculate)</label>
-                      <button onClick={handleAddGrain} className="text-xs bg-surface-800 px-2 py-1 rounded text-bio-green hover:bg-surface-700 transition-colors">+ Add Type</button>
-                    </div>
-                    {inventory.sterilizedGrains.length === 0 && <p className="text-xs text-surface-muted">None currently added.</p>}
-                    <div className="space-y-2">
-                      {inventory.sterilizedGrains.map((item, idx) => (
-                        <div key={idx} className="flex gap-2 items-center">
-                          <input type="number" className="lab-input flex-1" placeholder="Quantity" value={item.quantity} onChange={e => { const arr = [...inventory.sterilizedGrains]; arr[idx].quantity = parseInt(e.target.value) || 0; setInventory({...inventory, sterilizedGrains: arr})}} />
-                          <span className="text-sm">bags at</span>
-                          <input type="number" className="lab-input flex-1" placeholder="Lbs" value={item.weightLbs} onChange={e => { const arr = [...inventory.sterilizedGrains]; arr[idx].weightLbs = parseFloat(e.target.value) || 0; setInventory({...inventory, sterilizedGrains: arr})}} />
-                          <span className="text-sm">lbs</span>
-                          <button onClick={() => setInventory({...inventory, sterilizedGrains: inventory.sterilizedGrains.filter((_, i) => i !== idx)})} className="text-danger text-lg p-1">&times;</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="lab-card p-4">
-                    <div className="flex justify-between items-center mb-2">
-                      <label className="block text-[13px] font-semibold" style={{ color: 'var(--surface-muted)' }}>Sterilized Substrate Blocks</label>
-                      <button onClick={handleAddSubstrate} className="text-xs bg-surface-800 px-2 py-1 rounded text-bio-green hover:bg-surface-700 transition-colors">+ Add Type</button>
-                    </div>
-                    {inventory.sterilizedSubstrate.length === 0 && <p className="text-xs text-surface-muted">None currently added.</p>}
-                    <div className="space-y-2">
-                      {inventory.sterilizedSubstrate.map((item, idx) => (
-                        <div key={idx} className="flex gap-2 items-center">
-                          <input type="number" className="lab-input flex-1" placeholder="Quantity" value={item.quantity} onChange={e => { const arr = [...inventory.sterilizedSubstrate]; arr[idx].quantity = parseInt(e.target.value) || 0; setInventory({...inventory, sterilizedSubstrate: arr})}} />
-                          <span className="text-sm">bags at</span>
-                          <input type="number" className="lab-input flex-1" placeholder="Lbs" value={item.weightLbs} onChange={e => { const arr = [...inventory.sterilizedSubstrate]; arr[idx].weightLbs = parseFloat(e.target.value) || 0; setInventory({...inventory, sterilizedSubstrate: arr})}} />
-                          <span className="text-sm">lbs</span>
-                          <button onClick={() => setInventory({...inventory, sterilizedSubstrate: inventory.sterilizedSubstrate.filter((_, i) => i !== idx)})} className="text-danger text-lg p-1">&times;</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── STEP 6: INCUBATING ── */}
-            {step === 6 && (
-              <div className="space-y-6">
-                <HelpCard title="Currently Growing Spawn">
-                  Do you already have any bags that have been inoculated and are currently colonizing? 
-                  Adding them here ensures the schedule knows what's coming up in the pipeline.
-                </HelpCard>
-                
+                {/* Add new recipe */}
                 <div className="lab-card p-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <label className="block text-[13px] font-semibold" style={{ color: 'var(--surface-muted)' }}>Incubating Bags</label>
-                    <button onClick={handleAddIncubating} className="text-xs bg-surface-800 px-2 py-1 rounded text-bio-green hover:bg-surface-700 transition-colors">+ Add Batch</button>
+                  <p className="text-[13px] font-semibold text-surface-muted mb-2">Add Recipe</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text" className="lab-input flex-1" placeholder='e.g. "HWFP + 10% Wheat Bran"'
+                      value={newRecipeName}
+                      onChange={e => setNewRecipeName(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && addRecipe()}
+                    />
+                    <button
+                      onClick={addRecipe}
+                      className="bg-bio-green text-surface-900 font-bold px-4 rounded-lg flex items-center gap-1 text-sm"
+                    >
+                      <Plus weight="bold" size={14} /> Add
+                    </button>
                   </div>
-                  {incubating.length === 0 && <p className="text-xs text-surface-muted">None currently added.</p>}
-                  
-                  <div className="space-y-3">
-                    {incubating.map((item, idx) => (
-                      <div key={idx} className="flex flex-col gap-3 bg-surface-900 p-3 rounded border border-surface-border">
-                        <div className="flex gap-2 items-center">
-                          <input type="number" className="lab-input w-20" placeholder="Qty" value={item.quantity} onChange={e => { const arr = [...incubating]; arr[idx].quantity = parseInt(e.target.value) || 0; setIncubating(arr)}} />
-                          <span className="text-sm text-surface-muted">bags</span>
-                          <select className="lab-input flex-1" value={item.stage} onChange={e => { const arr = [...incubating]; arr[idx].stage = e.target.value; setIncubating(arr)}}>
-                            <option value="GEN1_GRAIN">Gen 1 Grain (from LC)</option>
-                            <option value="GEN2_GRAIN">Gen 2 Grain (from G2G)</option>
-                            <option value="BULK_BLOCK">Bulk Block</option>
-                          </select>
-                          <button onClick={() => setIncubating(incubating.filter((_, i) => i !== idx))} className="text-danger text-lg p-1">&times;</button>
-                        </div>
-                        <div className="flex flex-col gap-1 px-1">
-                          <div className="flex justify-between items-center text-xs text-surface-muted">
-                            <span>Colonization Progress:</span>
-                            <span className="text-bio-green font-mono">{item.colonizationPct || 0}%</span>
+                  {/* Quick starter recipes */}
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {['HWFP Base', 'HWFP + 10% Wheat Bran', 'HWFP + 20% Wheat Bran', 'CVG'].map(preset => (
+                      <button
+                        key={preset}
+                        onClick={() => {
+                          if (!recipes.find(r => r.name === preset)) {
+                            setRecipes(r => [...r, { name: preset, notes: '', ingredients: [] }])
+                          }
+                        }}
+                        className="text-[12px] px-2.5 py-1 rounded-full bg-surface-800 text-bio-green border border-surface-border hover:bg-surface-700 transition-colors"
+                      >
+                        + {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {recipes.length === 0 && (
+                  <p className="text-[13px] text-surface-muted text-center py-4">No recipes yet. Add one above or skip.</p>
+                )}
+
+                {/* Recipe list */}
+                <div className="space-y-4">
+                  {recipes.map((recipe, rIdx) => (
+                    <div key={rIdx} className="lab-card p-4 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Flask size={16} className="text-bio-green shrink-0" />
+                        <input
+                          type="text" className="lab-input flex-1 font-semibold"
+                          value={recipe.name}
+                          onChange={e => updateRecipe(rIdx, { name: e.target.value })}
+                          placeholder="Recipe name"
+                        />
+                        <button onClick={() => removeRecipe(rIdx)} className="text-danger p-1.5 rounded hover:bg-danger-dim transition-colors">
+                          <Trash size={15} />
+                        </button>
+                      </div>
+
+                      {/* Ingredients */}
+                      <div className="space-y-2">
+                        <p className="text-[11px] uppercase tracking-wide text-surface-muted font-semibold">Ingredients</p>
+                        {recipe.ingredients.map((ing, iIdx) => (
+                          <div key={iIdx} className="flex items-center gap-2">
+                            <input
+                              type="text" className="lab-input flex-1 text-sm" placeholder="Ingredient (e.g. HWFP)"
+                              value={ing.ingredient}
+                              onChange={e => updateIngredient(rIdx, iIdx, { ingredient: e.target.value })}
+                            />
+                            <input
+                              type="number" className="lab-input w-16 text-sm text-center" placeholder="%"
+                              value={ing.percentage ?? ''}
+                              onChange={e => updateIngredient(rIdx, iIdx, { percentage: parseFloat(e.target.value) || undefined })}
+                            />
+                            <span className="text-[12px] text-surface-muted w-6">%</span>
+                            <button onClick={() => removeIngredient(rIdx, iIdx)} className="text-danger p-1 rounded hover:bg-danger-dim transition-colors">
+                              <Trash size={13} />
+                            </button>
                           </div>
-                          <input type="range" min="0" max="100" value={item.colonizationPct || 0} onChange={e => { const arr = [...incubating]; arr[idx].colonizationPct = parseInt(e.target.value); setIncubating(arr)}} className="w-full accent-bio-green" />
+                        ))}
+                        <button
+                          onClick={() => addIngredient(rIdx)}
+                          className="text-[12px] text-bio-green flex items-center gap-1 mt-1"
+                        >
+                          <Plus size={12} weight="bold" /> Add ingredient
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 3: SPECIES ───────────────────────────── */}
+            {step === 3 && (
+              <div className="space-y-4">
+                <HelpCard title="Your Species">
+                  Add each mushroom species you grow. Substrate recipes are <strong>not tied here</strong>
+                  — you choose the recipe per batch when you inoculate.
+                  G2G (Grain-to-Grain) is how many times you expand before fruiting.
+                </HelpCard>
+
+                {/* Species tabs */}
+                {speciesList.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    {speciesList.map((s, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => setActiveSpeciesIdx(idx)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted hover:bg-surface-700'}`}
+                      >
+                        {s.commonName || `Species ${idx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="lab-card p-5 space-y-4">
+                  <FieldGroup label="Common Name" hint='e.g. "Blue Oyster", "Lions Mane", "Shiitake"'>
+                    <input type="text" className="lab-input w-full"
+                      placeholder="e.g. Blue Oyster"
+                      value={sp.commonName}
+                      onChange={e => setSp({ commonName: e.target.value })} />
+                  </FieldGroup>
+
+                  <FieldGroup label="G2G Generations" hint="How many Grain-to-Grain transfers before fruiting? 0 = inoculate directly from LC.">
+                    <input type="number" min="0" max="5" className="lab-input w-full"
+                      value={sp.maxGenerations}
+                      onChange={e => setSp({ maxGenerations: parseInt(e.target.value) || 0 })} />
+                    <div className="flex gap-1 mt-1.5 overflow-x-auto hide-scrollbar">
+                      {[0, 1, 2, 3].map(n => (
+                        <button
+                          key={n} onClick={() => setSp({ maxGenerations: n })}
+                          className={`shrink-0 text-[12px] px-3 py-1 rounded-full transition-colors ${sp.maxGenerations === n ? 'bg-bio-green text-surface-900 font-bold' : 'bg-surface-800 text-surface-muted'}`}
+                        >
+                          {n === 0 ? 'LC Only' : `${n}x G2G`}
+                        </button>
+                      ))}
+                    </div>
+                  </FieldGroup>
+
+                  <FieldGroup label="Bulk Prep Method">
+                    <select className="lab-input w-full" value={sp.bulkPrepMethod}
+                      onChange={e => setSp({ bulkPrepMethod: e.target.value })}>
+                      <option value="PC">Pressure Cook (PC)</option>
+                      <option value="PASTEURIZE">Pasteurize</option>
+                      <option value="NONE">No sterilization needed</option>
+                    </select>
+                  </FieldGroup>
+                </div>
+
+                <button
+                  onClick={addSpecies}
+                  className="w-full bg-surface-800 text-bio-green font-semibold py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-surface-700 transition-colors border border-surface-border"
+                >
+                  <Plus weight="bold" size={16} /> Add Another Species
+                </button>
+              </div>
+            )}
+
+            {/* ── STEP 4: TIMELINES ─────────────────────────── */}
+            {step === 4 && (
+              <div className="space-y-4">
+                <HelpCard title="Biological Growth Timelines">
+                  How long does each stage take for <strong>{sp.commonName || 'this species'}</strong>?
+                  Give a min (fastest) and max (slowest). The scheduler uses the max as the safety deadline.
+                </HelpCard>
+
+                {/* Species selector if multiple */}
+                {speciesList.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    {speciesList.map((s, idx) => (
+                      <button key={idx} onClick={() => setActiveSpeciesIdx(idx)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted'}`}>
+                        {s.commonName || `Species ${idx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Presets */}
+                <div className="flex gap-2 overflow-x-auto hide-scrollbar">
+                  {(['oyster', 'lionsmane', 'shiitake'] as const).map(p => (
+                    <button key={p} onClick={() => applyPreset(p)}
+                      className="shrink-0 text-[12px] bg-surface-800 text-bio-green px-3 py-1.5 rounded-full hover:bg-surface-700 transition-colors capitalize">
+                      {p === 'lionsmane' ? "Lion's Mane" : p.charAt(0).toUpperCase() + p.slice(1)} Preset
+                    </button>
+                  ))}
+                </div>
+
+                <div className="lab-card p-5 space-y-5">
+                  <DayRange label="LC → Gen 1 Grain Colonization"
+                    min={sp.lcToGen1DaysMin} max={sp.lcToGen1DaysMax}
+                    onMin={v => setSp({ lcToGen1DaysMin: v })} onMax={v => setSp({ lcToGen1DaysMax: v })} />
+                  {sp.maxGenerations > 1 && (
+                    <DayRange label="Gen 2 Grain Colonization (G2G)"
+                      min={sp.gen2ColonizationDaysMin} max={sp.gen2ColonizationDaysMax}
+                      onMin={v => setSp({ gen2ColonizationDaysMin: v })} onMax={v => setSp({ gen2ColonizationDaysMax: v })} />
+                  )}
+                  <DayRange label="Bulk Block Colonization"
+                    min={sp.bulkColonizationDaysMin} max={sp.bulkColonizationDaysMax}
+                    onMin={v => setSp({ bulkColonizationDaysMin: v })} onMax={v => setSp({ bulkColonizationDaysMax: v })} />
+                  <DayRange label="Fruiting (Pin to Harvest)"
+                    min={sp.fruitingDaysMin} max={sp.fruitingDaysMax}
+                    onMin={v => setSp({ fruitingDaysMin: v })} onMax={v => setSp({ fruitingDaysMax: v })} />
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 5: TARGETS ───────────────────────────── */}
+            {step === 5 && (
+              <div className="space-y-4">
+                <HelpCard title="Production Targets">
+                  The engine works backwards from your weekly harvest target to figure out what
+                  to sterilize and inoculate each day. The fridge buffer keeps colonized grain
+                  ready so you can start bulk blocks on demand.
+                </HelpCard>
+
+                {speciesList.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    {speciesList.map((s, idx) => (
+                      <button key={idx} onClick={() => setActiveSpeciesIdx(idx)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted'}`}>
+                        {s.commonName || `Species ${idx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="lab-card p-5 space-y-5">
+                  <FieldGroup label="Weekly Target — Fruiting Blocks" hint="How many bulk blocks do you want to harvest per week?">
+                    <input type="number" min="0" className="lab-input w-full"
+                      value={sp.weeklyTargetBlocks}
+                      onChange={e => setSp({ weeklyTargetBlocks: parseInt(e.target.value) || 0 })} />
+                  </FieldGroup>
+                  <FieldGroup label="Fridge Target (Grain Bags)" hint="Ideal number of fully colonized bags resting in the fridge">
+                    <input type="number" min="0" className="lab-input w-full"
+                      value={sp.fridgeTargetBags}
+                      onChange={e => setSp({ fridgeTargetBags: parseInt(e.target.value) || 0 })} />
+                  </FieldGroup>
+                  <FieldGroup label="Fridge Minimum (Grain Bags)" hint="If the fridge drops below this, the app flags an urgent shortage">
+                    <input type="number" min="0" className="lab-input w-full"
+                      value={sp.fridgeMinBags}
+                      onChange={e => setSp({ fridgeMinBags: parseInt(e.target.value) || 0 })} />
+                  </FieldGroup>
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 6: INVENTORY ─────────────────────────── */}
+            {step === 6 && (
+              <div className="space-y-4">
+                <HelpCard title="Materials On Hand">
+                  Log any LC, grain bags, or substrate blocks you already have ready.
+                  This is optional — skip if you're starting from scratch.
+                </HelpCard>
+
+                {speciesList.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
+                    {speciesList.map((s, idx) => (
+                      <button key={idx} onClick={() => setActiveSpeciesIdx(idx)}
+                        className={`shrink-0 px-3 py-1.5 rounded-full text-[13px] font-semibold transition-colors ${activeSpeciesIdx === idx ? 'bg-bio-green text-surface-900' : 'bg-surface-800 text-surface-muted'}`}>
+                        {s.commonName || `Species ${idx + 1}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {/* LC */}
+                  <div className="lab-card p-4">
+                    <FieldGroup label={`Liquid Culture for ${sp.commonName || 'this species'} (mL)`} hint="1 syringe ≈ 10 mL">
+                      <input type="number" min="0" className="lab-input w-full"
+                        value={sp.startingLcVolumeMl}
+                        onChange={e => setSp({ startingLcVolumeMl: parseInt(e.target.value) || 0 })} />
+                    </FieldGroup>
+                  </div>
+
+                  {/* Grain bags */}
+                  <div className="lab-card p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <p className="text-[13px] font-semibold text-surface-muted">Sterilized Grain Bags (ready to inoculate)</p>
+                      <button
+                        onClick={() => setSp({ sterilizedGrains: [...sp.sterilizedGrains, { weightLbs: 5, quantity: 1 }] })}
+                        className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
+                      >
+                        <Plus size={12} weight="bold" /> Add
+                      </button>
+                    </div>
+                    {sp.sterilizedGrains.length === 0 && (
+                      <p className="text-[12px] text-surface-muted">None. Skip or add above.</p>
+                    )}
+                    <div className="space-y-2">
+                      {sp.sterilizedGrains.map((item, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <input type="number" className="lab-input w-20 text-center" placeholder="Qty"
+                            value={item.quantity}
+                            onChange={e => {
+                              const arr = [...sp.sterilizedGrains]
+                              arr[idx] = { ...arr[idx], quantity: parseInt(e.target.value) || 0 }
+                              setSp({ sterilizedGrains: arr })
+                            }} />
+                          <span className="text-[12px] text-surface-muted">bags @</span>
+                          <input type="number" className="lab-input w-20 text-center" placeholder="Lbs"
+                            value={item.weightLbs}
+                            onChange={e => {
+                              const arr = [...sp.sterilizedGrains]
+                              arr[idx] = { ...arr[idx], weightLbs: parseFloat(e.target.value) || 0 }
+                              setSp({ sterilizedGrains: arr })
+                            }} />
+                          <span className="text-[12px] text-surface-muted">lbs</span>
+                          <button onClick={() => setSp({ sterilizedGrains: sp.sterilizedGrains.filter((_, i) => i !== idx) })}
+                            className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
+                            <Trash size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Substrate blocks */}
+                  <div className="lab-card p-4">
+                    <div className="flex justify-between items-center mb-3">
+                      <p className="text-[13px] font-semibold text-surface-muted">Sterilized Substrate Blocks (ready to use)</p>
+                      <button
+                        onClick={() => setSp({ sterilizedSubstrate: [...sp.sterilizedSubstrate, { weightLbs: 5, quantity: 1 }] })}
+                        className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
+                      >
+                        <Plus size={12} weight="bold" /> Add
+                      </button>
+                    </div>
+                    {sp.sterilizedSubstrate.length === 0 && (
+                      <p className="text-[12px] text-surface-muted">None. Skip or add above.</p>
+                    )}
+                    <div className="space-y-2">
+                      {sp.sterilizedSubstrate.map((item, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <input type="number" className="lab-input w-20 text-center" placeholder="Qty"
+                            value={item.quantity}
+                            onChange={e => {
+                              const arr = [...sp.sterilizedSubstrate]
+                              arr[idx] = { ...arr[idx], quantity: parseInt(e.target.value) || 0 }
+                              setSp({ sterilizedSubstrate: arr })
+                            }} />
+                          <span className="text-[12px] text-surface-muted">blocks @</span>
+                          <input type="number" className="lab-input w-20 text-center" placeholder="Lbs"
+                            value={item.weightLbs}
+                            onChange={e => {
+                              const arr = [...sp.sterilizedSubstrate]
+                              arr[idx] = { ...arr[idx], weightLbs: parseFloat(e.target.value) || 0 }
+                              setSp({ sterilizedSubstrate: arr })
+                            }} />
+                          <span className="text-[12px] text-surface-muted">lbs</span>
+                          <button onClick={() => setSp({ sterilizedSubstrate: sp.sterilizedSubstrate.filter((_, i) => i !== idx) })}
+                            className="text-danger p-1.5 rounded hover:bg-danger-dim ml-auto">
+                            <Trash size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── STEP 7: INCUBATING ────────────────────────── */}
+            {step === 7 && (
+              <div className="space-y-4">
+                <HelpCard title="Already Colonizing?">
+                  Do you have bags that are currently incubating? Add them here so the schedule
+                  knows what's already in the pipeline.
+                  <br /><br />
+                  You can skip this if you're starting fresh.
+                </HelpCard>
+
+                <div className="lab-card p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <p className="text-[13px] font-semibold text-surface-muted">Incubating Batches</p>
+                    <button
+                      onClick={() => {
+                        if (speciesList.length === 0) return
+                        setIncubating(i => [...i, { speciesIdx: 0, stage: 'GEN1_GRAIN', quantity: 1, colonizationPct: 0 }])
+                      }}
+                      className="text-[12px] bg-surface-800 px-2.5 py-1 rounded-lg text-bio-green hover:bg-surface-700 transition-colors flex items-center gap-1"
+                    >
+                      <Plus size={12} weight="bold" /> Add Batch
+                    </button>
+                  </div>
+
+                  {incubating.length === 0 && (
+                    <p className="text-[12px] text-surface-muted">None. Skip or add above.</p>
+                  )}
+
+                  <div className="space-y-4">
+                    {incubating.map((item, idx) => (
+                      <div key={idx} className="bg-surface-900 rounded-xl p-3 border border-surface-border space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[12px] font-semibold text-surface-muted">Batch {idx + 1}</span>
+                          <button
+                            onClick={() => setIncubating(i => i.filter((_, j) => j !== idx))}
+                            className="text-danger p-1.5 rounded hover:bg-danger-dim transition-colors"
+                          >
+                            <Trash size={14} />
+                          </button>
+                        </div>
+
+                        {/* Species picker — dynamic from step 3 */}
+                        <div>
+                          <p className="text-[11px] text-surface-muted mb-1">Species</p>
+                          <select
+                            className="lab-input w-full"
+                            value={item.speciesIdx}
+                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, speciesIdx: parseInt(e.target.value) } : it))}
+                          >
+                            {speciesList.map((s, sIdx) => (
+                              <option key={sIdx} value={sIdx}>
+                                {s.commonName || `Species ${sIdx + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          {/* Stage */}
+                          <div>
+                            <p className="text-[11px] text-surface-muted mb-1">Stage</p>
+                            <select className="lab-input w-full text-sm"
+                              value={item.stage}
+                              onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, stage: e.target.value } : it))}>
+                              <option value="GEN1_GRAIN">Gen 1 Grain (from LC)</option>
+                              <option value="GEN2_GRAIN">Gen 2 Grain (G2G)</option>
+                              <option value="BULK_BLOCK">Bulk Block</option>
+                            </select>
+                          </div>
+                          {/* Quantity */}
+                          <div>
+                            <p className="text-[11px] text-surface-muted mb-1">Quantity</p>
+                            <input type="number" min="1" className="lab-input w-full text-sm text-center"
+                              value={item.quantity}
+                              onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, quantity: parseInt(e.target.value) || 1 } : it))} />
+                          </div>
+                        </div>
+
+                        {/* Colonization progress */}
+                        <div>
+                          <div className="flex justify-between text-[11px] text-surface-muted mb-1">
+                            <span>Colonization Progress</span>
+                            <span className="text-bio-green font-mono font-bold">{item.colonizationPct}%</span>
+                          </div>
+                          <input type="range" min="0" max="100"
+                            className="w-full accent-bio-green"
+                            value={item.colonizationPct}
+                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, colonizationPct: parseInt(e.target.value) } : it))} />
+                          <div className="flex justify-between text-[10px] text-surface-muted">
+                            <span>Just started</span><span>Almost done</span>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -419,34 +868,57 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                 </div>
 
                 {error && (
-                  <div className="p-3 rounded-lg bg-danger-dim text-danger text-sm text-center">
+                  <div className="p-3 rounded-xl bg-danger-dim text-danger text-sm text-center">
                     {error}
                   </div>
                 )}
               </div>
             )}
+
           </motion.div>
         </AnimatePresence>
+      </div>
 
-        {/* Footer Navigation */}
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-surface-900 border-t border-surface-border flex gap-3 justify-between">
-          <div className="flex-1 max-w-xl mx-auto flex gap-3">
-            {step > 1 && (
-              <button onClick={prevStep} disabled={isSubmitting} className="flex-1 bg-surface-800 text-surface-text font-semibold h-12 rounded-full flex items-center justify-center gap-2 hover:bg-surface-700 transition-colors disabled:opacity-50">
-                <CaretLeft weight="bold" /> Back
-              </button>
-            )}
-            
-            {step < 6 ? (
-              <button onClick={nextStep} className="flex-[2] bg-bio-green text-surface-900 font-semibold h-12 rounded-full flex items-center justify-center gap-2 hover:bg-opacity-90 transition-colors">
-                Continue <CaretRight weight="bold" />
-              </button>
-            ) : (
-              <button onClick={handleSubmit} disabled={isSubmitting || !species.commonName.trim()} className="flex-[2] bg-bio-green text-surface-900 font-semibold h-12 rounded-full flex items-center justify-center gap-2 hover:bg-opacity-90 transition-colors disabled:opacity-50">
-                {isSubmitting ? 'Saving...' : 'Complete Setup'} <Check weight="bold" />
-              </button>
-            )}
-          </div>
+      {/* ── Fixed footer nav (safe-area aware) ────────────────── */}
+      <div
+        className="fixed bottom-0 left-0 right-0 bg-surface-900 border-t border-surface-border"
+        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))', paddingTop: '0.75rem', paddingLeft: '1rem', paddingRight: '1rem' }}
+      >
+        <div className="flex gap-3 max-w-xl mx-auto">
+          {step > 1 && (
+            <button
+              onClick={goBack}
+              disabled={isSubmitting}
+              className="flex-1 bg-surface-800 text-surface-text font-semibold h-12 rounded-2xl flex items-center justify-center gap-2 hover:bg-surface-700 transition-colors disabled:opacity-50"
+            >
+              <CaretLeft weight="bold" size={16} /> Back
+            </button>
+          )}
+
+          {step < 7 ? (
+            <button
+              onClick={goNext}
+              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              Continue <CaretRight weight="bold" size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting || speciesList.every(s => !s.commonName.trim())}
+              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
+            >
+              {isSubmitting ? (
+                <>
+                  <SpinnerIcon size={18} className="animate-spin" /> Saving…
+                </>
+              ) : (
+                <>
+                  Launch Lab <Check weight="bold" size={16} />
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

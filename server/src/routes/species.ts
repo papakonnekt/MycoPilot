@@ -41,7 +41,17 @@ router.get('/:id/lineages', (req: Request, res: Response) => {
           JOIN batch b ON b.id = hr.batch_id
           WHERE b.lineage_id = l.id
             AND hr.harvest_date >= date('now', '-90 days')
-            AND hr.biological_efficiency IS NOT NULL) AS avg_be_90d
+            AND hr.biological_efficiency IS NOT NULL) AS avg_be_90d,
+        (
+          SELECT json_group_array(json_object('date', hr.harvest_date, 'be', hr.biological_efficiency))
+          FROM (
+            SELECT hr.harvest_date, hr.biological_efficiency
+            FROM harvest_record hr
+            JOIN batch b ON b.id = hr.batch_id
+            WHERE b.lineage_id = l.id AND hr.biological_efficiency IS NOT NULL
+            ORDER BY hr.harvest_date ASC
+          ) hr
+        ) AS history_json
       FROM lineage l
       WHERE l.species_id = ?
       ORDER BY l.is_senescent ASC, l.created_at DESC
