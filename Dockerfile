@@ -1,7 +1,7 @@
 # =============================================================
 # Stage 1: Build the React + Vite frontend
 # =============================================================
-FROM node:20-alpine AS client-builder
+FROM node:22-alpine AS client-builder
 WORKDIR /app
 COPY shared/ ./shared/
 COPY client/package*.json ./client/
