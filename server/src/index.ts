@@ -32,7 +32,7 @@ app.use(express.json());
 
 // ── DATABASE INIT ─────────────────────────────────────────────
 // Apply schema on every startup (idempotent CREATE IF NOT EXISTS)
-migrate(false);
+migrate();
 
 
 // ── ROUTES ────────────────────────────────────────────────────

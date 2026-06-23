@@ -130,13 +130,13 @@ router.post('/setup', (req: Request, res: Response) => {
 
         // 4. Lineage Auto-Generation (e.g. "Blue Oyster" -> "BO-01")
         const initials = sp.commonName.split(' ').map((w: string) => w[0]).join('').toUpperCase();
-        const lineageCode = \`\${initials}-01\`;
+        const lineageCode = `${initials}-01`;
         const lineageResult = insertLineage.run(speciesId, lineageCode);
         const lineageId = lineageResult.lastInsertRowid;
 
         // 5. Raw Materials (Inventory)
         if (sp.startingLcVolumeMl > 0) {
-          insertRawMaterial.run(\`Liquid Culture (\${lineageCode})\`, 'mL', sp.startingLcVolumeMl, \`Starting LC volume from onboarding\`);
+          insertRawMaterial.run(`Liquid Culture (${lineageCode})`, 'mL', sp.startingLcVolumeMl, `Starting LC volume from onboarding`);
         }
         
         if (sp.sterilizedGrains) {
@@ -144,10 +144,10 @@ router.post('/setup', (req: Request, res: Response) => {
           let notesArr = [];
           for (const item of sp.sterilizedGrains) {
             totalLbs += item.weightLbs * item.quantity;
-            notesArr.push(\`\${item.quantity}x \${item.weightLbs}lb bags\`);
+            notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
           }
           if (totalLbs > 0) {
-            insertRawMaterial.run(\`Sterilized Grain (\${sp.commonName})\`, 'lbs', totalLbs, \`Ready-to-inoculate bags: \${notesArr.join(', ')}\`);
+            insertRawMaterial.run(`Sterilized Grain (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate bags: ${notesArr.join(', ')}`);
           }
         }
 
@@ -156,10 +156,10 @@ router.post('/setup', (req: Request, res: Response) => {
           let notesArr = [];
           for (const item of sp.sterilizedSubstrate) {
             totalLbs += item.weightLbs * item.quantity;
-            notesArr.push(\`\${item.quantity}x \${item.weightLbs}lb bags\`);
+            notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
           }
           if (totalLbs > 0) {
-            insertRawMaterial.run(\`Sterilized Substrate (\${sp.commonName})\`, 'lbs', totalLbs, \`Ready-to-inoculate bags: \${notesArr.join(', ')}\`);
+            insertRawMaterial.run(`Sterilized Substrate (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate bags: ${notesArr.join(', ')}`);
           }
         }
 
