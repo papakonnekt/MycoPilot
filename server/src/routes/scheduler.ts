@@ -101,6 +101,7 @@ router.post('/run', async (req: Request, res: Response) => {
         senescenceThresholdPct: row.senescence_threshold_pct,
         maxGenerations: row.max_generations,
         sporeCloneFreq: row.spore_clone_freq,
+        priorityLevel: row.priority_level,
         effectiveFrom: row.effective_from,
         effectiveTo: row.effective_to,
       });

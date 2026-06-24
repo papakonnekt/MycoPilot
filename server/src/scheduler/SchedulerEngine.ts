@@ -745,7 +745,7 @@ export class SchedulerEngine {
         // Let engine schedule INOCULATE_LC (requires MICROLAB PC) and PREP_LC today
         
         // 1. Prepare Liquid Culture (make broth, sterilize)
-        this.addPCRequest({
+        this.addPCRequest(calendar, {
           runType: 'MICROLAB',
           bagType: 'LC_JAR',
           bagCount: 1, // Let's assume 1 jar of 500mL
