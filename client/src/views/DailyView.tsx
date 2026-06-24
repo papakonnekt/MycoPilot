@@ -294,7 +294,6 @@ function DailyViewReady({
         const tomorrow = new Date()
         tomorrow.setDate(tomorrow.getDate() + 1)
         const tomorrowStr = tomorrow.toISOString().split('T')[0]
-        // @ts-expect-error - rescheduleTask imported via lib/api
         await rescheduleTask(task.id, tomorrowStr)
         setToast(`Rescheduled to tomorrow.`)
         window.setTimeout(() => setToast(null), 4000)
@@ -665,6 +664,7 @@ function TaskGroupSection({
   index,
   onComplete,
   onRequestContam,
+  onRequestReschedule,
 }: {
   group: TaskGroup
   index: number
@@ -847,6 +847,7 @@ function TaskCard({
                     <span className="text-num whitespace-nowrap">Flush {task.flush_number}</span>
                   </>
                 ) : null}
+              </div>
               {task.notes !== undefined && (
                 <div 
                   className="mt-2"

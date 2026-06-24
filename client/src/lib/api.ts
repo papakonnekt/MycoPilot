@@ -303,6 +303,7 @@ export interface HardwareSettingsRow {
   homogeneous_by_bag_type: number | boolean
   daily_available_mins: number
   scheduling_horizon_days: number
+  default_bag_weight_lbs?: number
   pc_unit_count: number
   lab_days: string
   is_active: number | boolean
@@ -362,6 +363,8 @@ export interface SettingsSpeciesRow {
   max_generations?: number
   spore_clone_freq?: number
   priority_level?: number
+  agar_plates?: number
+  spore_prints?: number
   effective_from?: string
   effective_to?: string | null
 }
@@ -697,40 +700,7 @@ export function deleteMaterial(
   })
 }
 
-/** GET /recipes */
-export function getRecipes(): Promise<{ success: boolean; data: any[] }> {
-  return request('/recipes')
-}
 
-/** POST /recipes */
-export function createRecipe(
-  payload: { name: string; notes?: string; ingredients: { ingredient: string; amount?: number; unit?: string; notes?: string }[] }
-): Promise<{ success: boolean; data: { id: number } }> {
-  return request('/recipes', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
-
-/** PUT /recipes/:id */
-export function updateRecipe(
-  id: number,
-  payload: { name: string; notes?: string; ingredients: { ingredient: string; amount?: number; unit?: string; notes?: string }[] }
-): Promise<{ success: boolean }> {
-  return request(`/recipes/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  })
-}
-
-/** DELETE /recipes/:id */
-export function deleteRecipe(
-  id: number
-): Promise<{ success: boolean }> {
-  return request(`/recipes/${id}`, {
-    method: 'DELETE',
-  })
-}
 
 // ── SETTINGS ──────────────────────────────────────────────────
 
@@ -775,6 +745,10 @@ export function updateSpeciesProfile(
     maxGenerations?: number
     sporeCloneFreq?: number
     priorityLevel?: number
+    lcInjectionVolumeMl?: number
+    minGen2Bags?: number
+    targetGen2Bags?: number
+    targetBlocksPerWk?: number
   },
 ): Promise<{ success: boolean; message: string }> {
   return request(`/settings/species/${speciesId}/profile`, {

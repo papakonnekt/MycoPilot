@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
-import { Camera as CameraIcon, SpinnerGap } from '@phosphor-icons/react';
-import { BatchPhotoRow, getBatchPhotos, saveBatchPhoto } from '../lib/api';
+import { Camera as CameraIcon, SpinnerGap } from 'phosphor-react';
+import { getBatchPhotos, saveBatchPhoto } from '../lib/api';
+import type { BatchPhotoRow } from '../lib/api';
 
 export function BatchPhotoTimeline({ batchId }: { batchId: number | string }) {
   const [photos, setPhotos] = useState<BatchPhotoRow[]>([]);

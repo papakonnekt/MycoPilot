@@ -1488,8 +1488,8 @@ function BatchDetailSheet({
               </div>
               <div className="p-4 text-surface-muted text-sm" style={{
                 // Basic markdown resets since we don't have tailwind typography plugin
-                ['--tw-prose-body']: 'var(--surface-muted)',
-              }}>
+                '--tw-prose-body': 'var(--surface-muted)',
+              } as React.CSSProperties}>
                 <div className="[&>h1]:text-2xl [&>h1]:font-bold [&>h1]:mb-4 [&>h1]:text-surface-text
                                 [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h2]:mb-3 [&>h2]:text-surface-text
                                 [&>h3]:text-lg [&>h3]:font-semibold [&>h3]:mt-5 [&>h3]:mb-2 [&>h3]:text-surface-text

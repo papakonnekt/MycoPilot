@@ -23,7 +23,7 @@ export function RawMaterialsEditor() {
   const loadData = async () => {
     try {
       const res = await getInventory()
-      setMaterials(res.data.materials)
+      setMaterials(res.materials)
     } finally {
       setLoading(false)
     }

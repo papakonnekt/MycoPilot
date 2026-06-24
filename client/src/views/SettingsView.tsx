@@ -164,6 +164,10 @@ function toSpeciesDraft(row: SettingsSpeciesRow, data: SettingsPayload): Species
     lc_volume_ml_available: num(row.lc_volume_ml_available, 0),
     agar_plates: num(row.agar_plates, 0),
     spore_prints: num(row.spore_prints, 0),
+    lc_injection_volume_ml: num(row.lc_injection_volume_ml, 10),
+    min_gen2_bags: fridge ? num(fridge.min_gen2_bags, 2) : 2,
+    target_gen2_bags: fridge ? num(fridge.target_gen2_bags, 4) : 4,
+    target_blocks_per_wk: wt ? num(wt.target_blocks_per_wk, 10) : 10,
   }
 }
 
@@ -1141,7 +1145,6 @@ function RangeField({
             }}
             className="flex-1 min-w-0 bg-transparent outline-none text-[13px] font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             style={{ color: 'var(--surface-text)' }}
-          />
           />
         </div>
       </div>

@@ -5,11 +5,10 @@ import {
   PencilSimple,
   Check,
 } from 'phosphor-react'
-import { createRecipe, updateRecipe, deleteRecipe, getRecipes, getInventory } from '../lib/api'
+import { createRecipe, updateRecipe, deleteRecipe, getRecipes } from '../lib/api'
 
 export function RecipesEditor() {
   const [recipes, setRecipes] = useState<any[]>([])
-  const [materials, setMaterials] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<number | null>(null)
   
@@ -20,9 +19,9 @@ export function RecipesEditor() {
 
   const loadData = async () => {
     try {
-      const [resR, resM] = await Promise.all([getRecipes(), getInventory()])
-      setRecipes(resR.data || [])
-      setMaterials(resM.data.materials || [])
+      const resR = await getRecipes()
+      setRecipes(resR || [])
+
     } finally {
       setLoading(false)
     }

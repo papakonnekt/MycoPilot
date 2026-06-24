@@ -27,6 +27,7 @@ interface SpeciesEntry {
   defaultRecipeIdx?: number
   maxGenerations: number
   bulkPrepMethod: string
+  priorityLevel?: number
   lcToGen1DaysMin: number
   lcToGen1DaysMax: number
   gen2ColonizationDaysMin: number
