@@ -65,6 +65,22 @@ router.get('/:id/lineages', (req: Request, res: Response) => {
   }
 });
 
+// ── GET /api/species/:id/profiles ─────────────────────────────
+router.get('/:id/profiles', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  try {
+    const profiles = db.prepare(`
+      SELECT * FROM species_profile
+      WHERE species_id = ?
+      ORDER BY effective_from DESC, id DESC
+    `).all(id);
+    res.json({ success: true, data: profiles });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ── POST /api/species/:id/lineages ────────────────────────────
 router.post('/:id/lineages', (req: Request, res: Response) => {
   const db = getDb();
