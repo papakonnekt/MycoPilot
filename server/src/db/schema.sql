@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS species (
   lc_restock_threshold_ml REAL NOT NULL DEFAULT 20.0,
   default_recipe_id       INTEGER REFERENCES substrate_recipe(id),
   notes                   TEXT,
+  protocol_markdown       TEXT,
   is_active               INTEGER NOT NULL DEFAULT 1,
   created_at              TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -82,6 +83,7 @@ CREATE TABLE IF NOT EXISTS hardware_settings (
   scheduling_horizon_days     INTEGER NOT NULL DEFAULT 28,
   lab_days                    TEXT    NOT NULL DEFAULT '[1,2,3,4,5,6]', -- JSON array 0-6
   pc_unit_count               INTEGER NOT NULL DEFAULT 1,
+  default_bag_weight_lbs      REAL    NOT NULL DEFAULT 5.0,
   is_active                   INTEGER NOT NULL DEFAULT 1,
   updated_at                  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -135,6 +137,7 @@ CREATE TABLE IF NOT EXISTS genetic_material (
   -- Q5: volume_ml used for LC aggregate tracking at species level
   -- Individual entries still exist for audit; species.lc_volume_ml_available is the live count
   volume_ml_at_creation REAL,
+  current_volume_ml     REAL,
   unit_count            INTEGER NOT NULL DEFAULT 1,
   status                TEXT    NOT NULL DEFAULT 'ACTIVE'
                         CHECK(status IN ('ACTIVE','DEPLETED','CONTAMINATED','ARCHIVED')),
@@ -301,6 +304,7 @@ CREATE TABLE IF NOT EXISTS harvest_record (
     THEN ROUND(wet_weight_grams / block_weight_grams, 4)
     ELSE NULL END
   ) STORED,
+  cost_estimated        REAL,
   notes                 TEXT
 );
 
@@ -317,6 +321,14 @@ CREATE TABLE IF NOT EXISTS contam_log (
                          'POST_STERILIZATION','POST_INOCULATION','INCUBATION','FRUITING'
                        )),
   logged_at            TEXT    NOT NULL DEFAULT (datetime('now')),
+  notes                TEXT
+);
+
+CREATE TABLE IF NOT EXISTS batch_photo (
+  id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch_id             INTEGER NOT NULL REFERENCES batch(id) ON DELETE CASCADE,
+  photo_data_b64       TEXT    NOT NULL,
+  captured_at          TEXT    NOT NULL DEFAULT (datetime('now')),
   notes                TEXT
 );
 

@@ -994,7 +994,10 @@ function NewItemModal({
       import('../lib/api').then(m => m.getBatches()),
     ]).then(([s, b]) => {
       setSpeciesList(s)
-      setBatches(b.filter(batch => batch.stage.includes('GRAIN') || batch.stage.includes('BULK_BLOCK')))
+      setBatches(b.filter(batch => 
+        (batch.stage === 'GEN1_GRAIN' || batch.stage === 'GEN2_GRAIN' || batch.stage === 'GEN3_GRAIN' || batch.stage === 'BULK_BLOCK') && 
+        batch.pct_complete === 100
+      ))
       if (s.length > 0) setSpeciesId(s[0].id)
     }).catch(err => console.error(err))
   }, [])

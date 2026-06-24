@@ -11,7 +11,9 @@ router.get('/', (_req: Request, res: Response) => {
       SELECT s.*, sp.*, ft.min_gen2_bags, ft.target_gen2_bags,
         fs.net_available AS fridge_stock,
         fs.below_threshold AS fridge_low,
-        wt.target_blocks_per_wk AS weekly_target
+        wt.target_blocks_per_wk AS weekly_target,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'AGAR_PLATE' AND gm.status = 'ACTIVE'), 0) AS agar_plates,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'SPORE_PRINT' AND gm.status = 'ACTIVE'), 0) AS spore_prints
       FROM species s
       LEFT JOIN species_profile sp ON sp.species_id = s.id AND sp.effective_to IS NULL
       LEFT JOIN fridge_thresholds ft ON ft.species_id = s.id

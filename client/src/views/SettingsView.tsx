@@ -40,6 +40,9 @@ import {
   runScheduler,
   updateHardwareSettings,
   updateSpeciesProfile,
+  saveSpeciesProtocol,
+  createBackup,
+  resetSetup,
   type HardwareSettingsRow,
   type SettingsPayload,
   type SettingsSpeciesRow,
@@ -50,6 +53,8 @@ import { HarvestForecastWidget } from '../components/HarvestForecastWidget'
 import { PerformanceMatrixWidget } from '../components/PerformanceMatrixWidget'
 import { PcRunHistoryWidget } from '../components/PcRunHistoryWidget'
 import { CapacityPlannerWidget } from '../components/CapacityPlannerWidget'
+import { RawMaterialsEditor } from '../components/RawMaterialsEditor'
+import { RecipesEditor } from '../components/RecipesEditor'
 import { WifiHigh } from 'phosphor-react'
 
 // ─────────────────────────────────────────────────────────────
@@ -72,6 +77,7 @@ interface HardwareDraft {
   microlab_prep_cool_mins: number
   daily_available_mins: number
   scheduling_horizon_days: number
+  default_bag_weight_lbs: number
 }
 
 interface SpeciesDraft {
@@ -91,6 +97,17 @@ interface SpeciesDraft {
   senescence_threshold_pct: number
   max_generations: number
   spore_clone_freq: number
+  priority_level: number
+  protocol_markdown: string
+  lc_volume_ml_available: number
+  agar_plates: number
+  spore_prints: number
+  
+  // Added fields
+  lc_injection_volume_ml: number
+  min_gen2_bags: number
+  target_gen2_bags: number
+  target_blocks_per_wk: number
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -111,15 +128,20 @@ function toHardwareDraft(row: HardwareSettingsRow): HardwareDraft {
     microlab_prep_cool_mins: row.microlab_prep_cool_mins,
     daily_available_mins: row.daily_available_mins,
     scheduling_horizon_days: row.scheduling_horizon_days,
+    default_bag_weight_lbs: row.default_bag_weight_lbs ?? 5,
   }
 }
 
-function toSpeciesDraft(row: SettingsSpeciesRow): SpeciesDraft {
+function toSpeciesDraft(row: SettingsSpeciesRow, data: SettingsPayload): SpeciesDraft {
   const num = (v: number | string | undefined | null, fallback: number): number => {
     if (v == null) return fallback
     const n = typeof v === 'string' ? parseFloat(v) : v
     return Number.isFinite(n) ? n : fallback
   }
+
+  const fridge = data.fridgeThresholds?.find(f => f.species_id === row.id)
+  const wt = data.weeklyTargets?.find(w => w.species_id === row.id)
+
   return {
     id: row.id,
     common_name: row.common_name,
@@ -129,14 +151,19 @@ function toSpeciesDraft(row: SettingsSpeciesRow): SpeciesDraft {
     gen2_colonization_days_max: num(row.gen2_colonization_days_max, 16),
     bulk_colonization_days_min: num(row.bulk_colonization_days_min, 12),
     bulk_colonization_days_max: num(row.bulk_colonization_days_max, 16),
-    fruiting_days_min: num(row.fruiting_days_min, 5),
-    fruiting_days_max: num(row.fruiting_days_max, 10),
+    fruiting_days_min: num(row.fruiting_days_min, 14),
+    fruiting_days_max: num(row.fruiting_days_max, 21),
     gen1_to_gen2_ratio: num(row.gen1_to_gen2_ratio, 10),
-    gen2_to_bulk_spawn_pct: num(row.gen2_to_bulk_spawn_pct, 0.2),
-    target_biological_efficiency: num(row.target_biological_efficiency, 0.5),
-    senescence_threshold_pct: num(row.senescence_threshold_pct, 0.2),
-    max_generations: num(row.max_generations, 8),
-    spore_clone_freq: num(row.spore_clone_freq, 3),
+    gen2_to_bulk_spawn_pct: num(row.gen2_to_bulk_spawn_pct, 0.1),
+    target_biological_efficiency: num(row.target_biological_efficiency, 1.0),
+    senescence_threshold_pct: num(row.senescence_threshold_pct, 0.5),
+    max_generations: num(row.max_generations, 4),
+    spore_clone_freq: num(row.spore_clone_freq, 0.05),
+    priority_level: num(row.priority_level, 0),
+    protocol_markdown: row.protocol_markdown || '',
+    lc_volume_ml_available: num(row.lc_volume_ml_available, 0),
+    agar_plates: num(row.agar_plates, 0),
+    spore_prints: num(row.spore_prints, 0),
   }
 }
 
@@ -210,7 +237,7 @@ function SettingsReady({
     toHardwareDraft(data.hardware!),
   )
   const [speciesDrafts, setSpeciesDrafts] = useState<SpeciesDraft[]>(() =>
-    data.species!.map(toSpeciesDraft),
+    data.species!.map(row => toSpeciesDraft(row, data)),
   )
   const [hwStatus, setHwStatus] = useState<SaveStatus>('idle')
   const [hwError, setHwError] = useState<string | null>(null)
@@ -285,7 +312,13 @@ function SettingsReady({
           senescenceThresholdPct: draft.senescence_threshold_pct,
           maxGenerations: draft.max_generations,
           sporeCloneFreq: draft.spore_clone_freq,
+          priorityLevel: draft.priority_level,
+          lcInjectionVolumeMl: draft.lc_injection_volume_ml,
+          minGen2Bags: draft.min_gen2_bags,
+          targetGen2Bags: draft.target_gen2_bags,
+          targetBlocksPerWk: draft.target_blocks_per_wk,
         })
+        await saveSpeciesProtocol(id, draft.protocol_markdown)
         setSpeciesStatus((prev) => ({ ...prev, [id]: 'saved' }))
         onReload()
       } catch (err) {
@@ -461,6 +494,68 @@ function SettingsReady({
           </section>
         </div>
 
+        <div className="mt-6 md:mt-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section>
+            <RawMaterialsEditor />
+          </section>
+          <section>
+            <RecipesEditor />
+          </section>
+        </div>
+
+        {/* Database Management / Danger Zone */}
+        <div className="mt-6 md:mt-8">
+          <div className="lab-card flex flex-col md:flex-row gap-4 p-4 md:p-6 min-w-0">
+            <div className="flex-1 min-w-0">
+              <span className="eyebrow-tag">Database Management</span>
+              <h2 className="mt-3 font-sans font-bold text-2xl leading-tight tracking-tight text-balance" style={{ color: 'var(--surface-text)' }}>
+                Backup & Restore
+              </h2>
+              <p className="mt-2 text-[13px] text-surface-muted max-w-lg">
+                Create a snapshot of the current SQLite database to the <code>server/data/backups/</code> directory, or completely wipe all lab data to start fresh (preserves species profiles).
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-start md:items-end justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm('Create a backup snapshot now?')) return
+                  try {
+                    const res = await createBackup()
+                    setToast(res.message)
+                    setTimeout(() => setToast(null), 4000)
+                  } catch (err: any) {
+                    setToast(err.message || 'Backup failed')
+                    setTimeout(() => setToast(null), 4000)
+                  }
+                }}
+                className="btn-ghost"
+              >
+                Create Backup
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const msg = 'DANGER: Are you sure you want to wipe ALL batches, tasks, and genetic material? This cannot be undone.'
+                  if (!confirm(msg)) return
+                  try {
+                    const res = await resetSetup()
+                    setToast(res.message)
+                    setTimeout(() => setToast(null), 4000)
+                    window.location.reload()
+                  } catch (err: any) {
+                    setToast(err.message || 'Reset failed')
+                    setTimeout(() => setToast(null), 4000)
+                  }
+                }}
+                className="px-4 py-2 bg-danger/10 text-danger border border-danger/20 rounded-full font-semibold text-sm hover:bg-danger hover:text-white transition-colors"
+              >
+                Reset Setup
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="mt-10 md:mt-12 flex items-center gap-2 text-[11px] uppercase tracking-eyebrow" style={{ color: 'var(--surface-muted)' }}>
           <span className="h-1.5 w-1.5 rounded-full" style={{ background: 'var(--bio-green)' }} />
           <span>End of settings</span>
@@ -625,6 +720,15 @@ function HardwareSection({
             max={90}
             step={1}
           />
+          <NumberField
+            label="Default Bag Weight"
+            suffix="lbs"
+            value={draft.default_bag_weight_lbs}
+            onChange={(v) => set('default_bag_weight_lbs', v)}
+            min={0.5}
+            max={50}
+            step={0.5}
+          />
         </div>
 
       <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
@@ -732,11 +836,17 @@ function SpeciesCard({
     <div className="rounded-2xl p-3 md:p-5 min-w-0 overflow-hidden" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
       <div className="flex items-start justify-between gap-3 mb-3 min-w-0">
         <div className="min-w-0 flex-1">
-          <div className="font-sans font-semibold text-xl leading-tight break-words text-balance" style={{ color: 'var(--surface-text)' }}>
+          <div className="font-sans font-semibold text-xl leading-tight break-words text-balance flex items-center gap-2" style={{ color: 'var(--surface-text)' }}>
             {draft.common_name}
           </div>
-          <div className="text-[11px] font-mono uppercase tracking-eyebrow mt-0.5" style={{ color: 'var(--bio-green)' }}>
-            Profile · versioned
+          <div className="text-[11px] font-mono uppercase tracking-eyebrow mt-1 flex flex-wrap gap-2 items-center" style={{ color: 'var(--bio-green)' }}>
+            <span>Profile · versioned</span>
+            <span className="opacity-50">|</span>
+            <span>{draft.lc_volume_ml_available} mL LC</span>
+            <span className="opacity-50">|</span>
+            <span>{draft.agar_plates} Agar</span>
+            <span className="opacity-50">|</span>
+            <span>{draft.spore_prints} Spore</span>
           </div>
         </div>
       </div>
@@ -841,18 +951,62 @@ function SpeciesCard({
           step={1}
         />
         <NumberField
+          label="Priority Level"
+          hint="1 is highest"
+          value={draft.priority_level}
+          onChange={(v) => onChange({ priority_level: v })}
+          min={1}
+          max={10}
+          step={1}
+        />
+        <NumberField
+          label="Weekly Target"
+          hint="Blocks/week"
+          value={draft.target_blocks_per_wk}
+          onChange={(v) => onChange({ target_blocks_per_wk: v })}
+          min={0}
+          max={100}
+          step={1}
+        />
+        <NumberField
+          label="Fridge Min"
+          hint="G2 spawn"
+          value={draft.min_gen2_bags}
+          onChange={(v) => onChange({ min_gen2_bags: v })}
+          min={0}
+          max={50}
+          step={1}
+        />
+        <NumberField
+          label="Fridge Target"
+          hint="G2 spawn"
+          value={draft.target_gen2_bags}
+          onChange={(v) => onChange({ target_gen2_bags: v })}
+          min={0}
+          max={50}
+          step={1}
+        />
+        <NumberField
           label="LC injection"
-          value={Number(
-            (
-              (draft as unknown as { lc_injection_volume_ml?: number })
-                .lc_injection_volume_ml ?? 10
-            ),
-          )}
-          onChange={() => {
-            /* read-only mirror — surface only */
-          }}
+          value={draft.lc_injection_volume_ml}
+          onChange={(v) => onChange({ lc_injection_volume_ml: v })}
+          min={1}
+          max={100}
+          step={1}
           suffix="mL"
-          disabled
+        />
+      </div>
+
+      <div className="mt-4">
+        <label className="block text-[11px] uppercase tracking-eyebrow mb-1.5" style={{ color: 'var(--surface-muted)' }}>
+          Protocol / SOP (Markdown)
+        </label>
+        <textarea
+          value={draft.protocol_markdown}
+          onChange={(e) => onChange({ protocol_markdown: e.target.value })}
+          rows={6}
+          className="w-full bg-surface-800 border border-surface-border rounded-lg p-3 text-sm text-surface-text focus:outline-none focus:border-bio-green transition-colors font-mono resize-y"
+          placeholder="e.g. ## Uncle Ben's Tek..."
         />
       </div>
 
@@ -987,6 +1141,7 @@ function RangeField({
             }}
             className="flex-1 min-w-0 bg-transparent outline-none text-[13px] font-mono text-num [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             style={{ color: 'var(--surface-text)' }}
+          />
           />
         </div>
       </div>

@@ -606,6 +606,12 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     </div>
                   </FieldGroup>
 
+                  <FieldGroup label="Priority Level" hint="1 is Highest Priority. High priority species are scheduled first if PC space is limited.">
+                    <input type="number" min="1" max="10" className="lab-input w-full"
+                      value={sp.priorityLevel ?? 3}
+                      onChange={e => setSp({ priorityLevel: parseInt(e.target.value) || 3 })} />
+                  </FieldGroup>
+
                   <FieldGroup label="Bulk Prep Method">
                     <select className="lab-input w-full" value={sp.bulkPrepMethod}
                       onChange={e => setSp({ bulkPrepMethod: e.target.value })}>

@@ -14,9 +14,11 @@ router.get('/', (_req: Request, res: Response) => {
     `).all();
 
     const lcStatus = db.prepare(`
-      SELECT id, common_name, lc_volume_ml_available, lc_restock_threshold_ml,
-        (lc_volume_ml_available <= lc_restock_threshold_ml) AS lc_is_low
-      FROM species WHERE is_active = 1
+      SELECT s.id, s.common_name, s.lc_volume_ml_available, s.lc_restock_threshold_ml,
+        (s.lc_volume_ml_available <= s.lc_restock_threshold_ml) AS lc_is_low,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'AGAR_PLATE' AND gm.status = 'ACTIVE'), 0) AS agar_plates,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'SPORE_PRINT' AND gm.status = 'ACTIVE'), 0) AS spore_prints
+      FROM species s WHERE s.is_active = 1
     `).all();
 
     const fridgeSummary = db.prepare(`SELECT * FROM fridge_summary`).all();
@@ -50,6 +52,50 @@ router.post('/restock', (req: Request, res: Response) => {
     `).run(materialId, quantity, notes ?? null);
 
     res.json({ success: true, message: `Restocked ${quantity} units.` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── POST /api/inventory/materials ─────────────────────────────
+router.post('/materials', (req: Request, res: Response) => {
+  const db = getDb();
+  const { materialName, unit, quantityOnHand, reorderThreshold, reorderQuantity, costPerUnit, notes } = req.body;
+  try {
+    const result = db.prepare(`
+      INSERT INTO raw_material (material_name, unit, quantity_on_hand, reorder_threshold, reorder_quantity, cost_per_unit, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(materialName, unit, quantityOnHand ?? 0, reorderThreshold ?? 0, reorderQuantity ?? 0, costPerUnit ?? 0, notes ?? null);
+    res.json({ success: true, data: { id: result.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── PUT /api/inventory/materials/:id ──────────────────────────
+router.put('/materials/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { materialName, unit, quantityOnHand, reorderThreshold, reorderQuantity, costPerUnit, notes } = req.body;
+  try {
+    db.prepare(`
+      UPDATE raw_material
+      SET material_name = ?, unit = ?, quantity_on_hand = ?, reorder_threshold = ?, reorder_quantity = ?, cost_per_unit = ?, notes = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(materialName, unit, quantityOnHand, reorderThreshold, reorderQuantity, costPerUnit, notes, id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── DELETE /api/inventory/materials/:id ───────────────────────
+router.delete('/materials/:id', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  try {
+    db.prepare(`DELETE FROM raw_material WHERE id = ?`).run(id);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

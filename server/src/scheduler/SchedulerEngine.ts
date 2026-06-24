@@ -32,6 +32,19 @@ function addDays(date: Date, days: number): Date {
   return d;
 }
 
+function shiftIfClosed(date: Date, hw: HardwareSettings, direction: 1 | -1 = 1): Date {
+  const d = new Date(date);
+  const labDays = hw.labDays || [0, 1, 2, 3, 4, 5, 6];
+  if (labDays.length === 0) return d; // Prevent infinite loop if all days are closed
+  
+  let iterations = 0;
+  while (!labDays.includes(d.getDay()) && iterations < 7) {
+    d.setDate(d.getDate() + direction);
+    iterations++;
+  }
+  return d;
+}
+
 function toDateStr(date: Date): string {
   return date.toISOString().split('T')[0];
 }
@@ -141,7 +154,7 @@ export class SchedulerEngine {
     // ------ STEP 2: Apply fridge reduction ---------------------------------------------------------------------
     const adjustedDemands = demands.map(d =>
       this.applyFridgeReduction(d, params.fridgeSummary, params.fridgeThresh)
-    );
+    ).sort((a, b) => (a.profile.priorityLevel || 3) - (b.profile.priorityLevel || 3));
 
     // ------ STEP 3: Generate production chain tasks ---------------------------------------------
     const horizonEnd = addDays(params.today, params.hardware.schedulingHorizonDays);
@@ -179,10 +192,10 @@ export class SchedulerEngine {
     this.tickActiveBatches(params.activeBatches, params.today, calendar, params.hardware, output);
 
     // ------ STEP 6: LC depletion checks ------------------------------------------------------------------------------
-    this.reconcileLC(output.tasks, params.speciesMap, output);
+    this.reconcileLC(output.tasks, params.speciesMap, output, calendar, params.today, params.hardware);
 
     // ------ STEP 7: Raw material depletion ------------------------------------------------------------------------
-    this.reconcileInventory(output.tasks, params.rawMaterials, params.usageRecipes, output);
+    this.reconcileInventory(output.tasks, params.rawMaterials, params.usageRecipes, params.hardware, output);
 
     // ------ STEP 8: Scan for constraint violations ------------------------------------------------
     this.detectViolations(calendar, params.hardware, output);
@@ -304,19 +317,19 @@ export class SchedulerEngine {
     const pcDates = new Array(maxGen);
 
     // First generation (LC to Gen1)
-    inocDates[0] = new Date(anchorDate);
-    pcDates[0] = addDays(inocDates[0], -1);
+    inocDates[0] = shiftIfClosed(new Date(anchorDate), hw, 1);
+    pcDates[0] = shiftIfClosed(addDays(inocDates[0], -1), hw, -1);
 
     // Middle and final generations
     for (let i = 1; i < maxGen; i++) {
         // Gen N inoculates after Gen N-1 finishes colonizing
         const prevColonizationDays = i === 1 ? p.lcToGen1DaysMax : p.gen2ColonizationDaysMax;
-        inocDates[i] = addDays(inocDates[i - 1], prevColonizationDays);
-        pcDates[i] = addDays(inocDates[i], -1);
+        inocDates[i] = shiftIfClosed(addDays(inocDates[i - 1], prevColonizationDays), hw, 1);
+        pcDates[i] = shiftIfClosed(addDays(inocDates[i], -1), hw, -1);
     }
 
     // Bulk Inoculation
-    const bulkInocDate = addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax);
+    const bulkInocDate = shiftIfClosed(addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax), hw, 1);
 
     // ------ Schedule Grain Generations ---------------------------------------
     for (let i = 0; i < maxGen; i++) {
@@ -379,7 +392,7 @@ export class SchedulerEngine {
     const totalBulkToMake = demand.bulkBlocksNeeded; // this uses both new + fridge
     if (totalBulkToMake > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
       if (species.bulkPrepMethod === 'PC') {
-        const pcBulkDate = addDays(bulkInocDate, -1);
+        const pcBulkDate = shiftIfClosed(addDays(bulkInocDate, -1), hw, -1);
         if (this.isInHorizon(pcBulkDate, today, hw)) {
           this.addPCRequest(calendar, {
             runType: 'BULK',
@@ -427,7 +440,7 @@ export class SchedulerEngine {
     // ------ MOVE surplus GenN to Fridge ---------------------------------------------------------------------------------
     const surplusGen = demand.finalGenBagsToRestock;
     if (surplusGen > 0 && this.isInHorizon(inocDates[maxGen - 1], today, hw)) {
-      const moveFridgeDate = addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax);
+      const moveFridgeDate = shiftIfClosed(addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax), hw, 1);
       if (this.isInHorizon(moveFridgeDate, today, hw)) {
         this.addTask(calendar, moveFridgeDate, {
           taskType: 'MOVE_TO_FRIDGE',
@@ -488,7 +501,40 @@ export class SchedulerEngine {
       let remainingBags = req.bagCount;
       let placed = false;
 
-      // Try to place on preferred date first, then scan forward to deadline
+      // 1. CONSOLIDATION PASS: Try to backfill existing runs up to 2 days prior
+      const lookbackDate = addDays(req.date, -2);
+      for (let d = new Date(lookbackDate); d < new Date(req.date); d = addDays(d, 1)) {
+        if (remainingBags <= 0) break;
+        
+        const dayKey = toDateStr(d);
+        const day = calendar.get(dayKey);
+        if (!day) continue;
+
+        // Find existing run of the same type with open slots
+        const existingRun = day.pcRuns.find(r => r.runType === req.runType);
+        if (existingRun) {
+          const usedSlots = existingRun.slots.reduce((s, sl) => s + sl.quantity, 0);
+          const openSlots = hw.maxBagsPerPcRun - usedSlots;
+          
+          if (openSlots > 0) {
+            const toPlace = Math.min(remainingBags, openSlots);
+            existingRun.slots.push({ speciesId: req.speciesId, bagType: req.bagType, quantity: toPlace });
+            existingRun.bagCount += toPlace;
+            remainingBags -= toPlace;
+            
+            // Update the existing PC task title to reflect the new total
+            const taskType = req.runType === 'GRAIN' ? 'PC_RUN_GRAIN' : req.runType === 'BULK' ? 'PC_RUN_BULK' : 'PC_RUN_MICROLAB';
+            const pcTask = day.tasks.find(t => t.taskType === taskType);
+            if (pcTask) {
+              pcTask.title = `PC Run [${req.runType}] --- ${existingRun.bagCount} bags (Consolidated)`;
+            }
+          }
+        }
+      }
+
+      if (remainingBags <= 0) continue;
+
+      // 2. NORMAL PASS: Try to place on preferred date first, then scan forward to deadline
       const startDate = new Date(req.date);
       const endDate = new Date(req.deadlineDate);
 
@@ -670,7 +716,10 @@ export class SchedulerEngine {
   private reconcileLC(
     tasks: Partial<Task>[],
     speciesMap: Map<number, Species>,
-    output: SchedulerOutput
+    output: SchedulerOutput,
+    calendar: Map<string, DayEntry>,
+    today: Date,
+    hw: HardwareSettings
   ): void {
     // Build per-species LC consumption from scheduled INOCULATE_GEN1 tasks
     const consumption: Map<number, number> = new Map();
@@ -692,24 +741,38 @@ export class SchedulerEngine {
       const available = species.lcVolumeMlAvailable;
       output.lcDeltas[speciesId] = -totalMl;
 
-      if (totalMl > available) {
-        output.warnings.push({
-          type: 'LC_LOW',
-          date: new Date().toISOString().split('T')[0],
-          message: `${species.commonName} LC INSUFFICIENT: need ${totalMl}mL, ` +
-                   `only ${available}mL available. Schedule PREP_LC immediately.`,
-          taskRef: `${species.commonName}-LC`,
-          severity: 'ERROR',
+      if (totalMl > available || (available - totalMl) < species.lcRestockThresholdMl) {
+        // Let engine schedule INOCULATE_LC (requires MICROLAB PC) and PREP_LC today
+        
+        // 1. Prepare Liquid Culture (make broth, sterilize)
+        this.addPCRequest({
+          runType: 'MICROLAB',
+          bagType: 'LC_JAR',
+          bagCount: 1, // Let's assume 1 jar of 500mL
+          speciesId,
+          speciesCode: species.commonName,
+          date: today,
+          deadlineDate: addDays(today, 2),
+          batchId: generateBatchId(species.commonName, 'LC', today, this.nextSeq(`LC-${speciesId}`))
         });
-      } else if ((available - totalMl) < species.lcRestockThresholdMl) {
+
+        // 2. Add INOCULATE_LC (Agar to LC)
+        const inocDate = addDays(today, 1); // after sterilization
+        this.addTask(calendar, inocDate, {
+          taskType: 'INOCULATE_LC',
+          title: `Inoculate LC (${species.commonName})`,
+          speciesId,
+          estimatedMins: estimateMins('INOCULATE_LC', hw),
+          status: 'PENDING',
+          notes: `LC levels critically low (needs ${totalMl}mL, has ${available}mL). Transfer from Agar Plate or Spore Print to new LC.`
+        }, hw, output);
+
         output.warnings.push({
           type: 'LC_LOW',
-          date: new Date().toISOString().split('T')[0],
-          message: `${species.commonName} LC will drop to ${(available - totalMl).toFixed(0)}mL ` +
-                   `after scheduled tasks - below threshold of ${species.lcRestockThresholdMl}mL. ` +
-                   `Schedule PREP_LC soon.`,
+          date: toDateStr(today),
+          message: `${species.commonName} LC will drop below threshold (need ${totalMl}mL, ${available}mL available). Scheduled PREP_LC and INOCULATE_LC.`,
           taskRef: `${species.commonName}-LC`,
-          severity: 'WARNING',
+          severity: totalMl > available ? 'ERROR' : 'WARNING',
         });
       }
     }
@@ -721,6 +784,7 @@ export class SchedulerEngine {
     tasks: Partial<Task>[],
     rawMaterials: Map<number, RawMaterial>,
     recipes: MaterialUsageRecipe[],
+    hw: HardwareSettings,
     output: SchedulerOutput
   ): void {
     // Running totals per material
@@ -737,7 +801,8 @@ export class SchedulerEngine {
             bagCount = parseInt(match[1], 10) || 1;
           }
         }
-        const total = recipe.quantityPerBag * bagCount;
+        const weightFactor = (task.bagWeightLbs ?? hw.defaultBagWeightLbs) / hw.defaultBagWeightLbs;
+        const total = recipe.quantityPerBag * bagCount * weightFactor;
         consumed.set(recipe.materialId, (consumed.get(recipe.materialId) ?? 0) + total);
       }
     }

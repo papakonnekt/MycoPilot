@@ -44,6 +44,7 @@ router.post('/run', async (req: Request, res: Response) => {
       dailyAvailableMins: hw.daily_available_mins,
       schedulingHorizonDays: hw.scheduling_horizon_days,
       pcUnitCount: hw.pc_unit_count ?? 1,
+      defaultBagWeightLbs: hw.default_bag_weight_lbs ?? 5.0,
       isActive: Boolean(hw.is_active),
       updatedAt: hw.updated_at,
     };

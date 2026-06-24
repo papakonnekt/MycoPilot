@@ -41,6 +41,7 @@ router.get('/incubating', (_req: Request, res: Response) => {
       SELECT
         b.*,
         s.common_name AS species_name,
+        s.protocol_markdown,
         CAST(julianday(b.colonization_target) - julianday('now') AS INTEGER) AS days_remaining,
         ROUND(
           CAST(julianday('now') - julianday(b.colonization_start) AS REAL) /
@@ -192,14 +193,30 @@ router.post('/:id/harvest', (req: Request, res: Response) => {
     const batch = db.prepare(`SELECT * FROM batch WHERE id = ?`).get(id) as any;
     if (!batch) return res.status(404).json({ success: false, error: 'Batch not found' });
 
+    // Compute estimated cost (labor + materials)
+    const costQuery = db.prepare(`
+      SELECT 
+        SUM(t.estimated_mins) as total_mins,
+        SUM(mur.quantity_per_bag * rm.cost_per_unit * b.quantity) as total_material_cost
+      FROM task t
+      JOIN batch b ON b.id = t.batch_id
+      LEFT JOIN material_usage_recipe mur ON mur.task_type = t.task_type
+      LEFT JOIN raw_material rm ON rm.id = mur.material_id
+      WHERE t.batch_id = ? AND t.status = 'COMPLETE'
+    `).get(id) as { total_mins: number | null, total_material_cost: number | null };
+
+    const laborCost = ((costQuery?.total_mins || 0) / 60) * 20; // Assume $20/hr
+    const materialCost = costQuery?.total_material_cost || 0;
+    const cost_estimated = laborCost + materialCost;
+
     // Insert harvest record
     db.prepare(`
-      INSERT INTO harvest_record (batch_id, lineage_id, flush_number, harvest_date, wet_weight_grams, dry_weight_grams, block_weight_grams, notes)
-      VALUES (?, ?, ?, date('now'), ?, ?, ?, ?)
-    `).run(id, batch.lineage_id, flushNumber, wetWeightGrams, dryWeightGrams ?? null, blockWeightGrams ?? null, notes ?? null);
+      INSERT INTO harvest_record (batch_id, lineage_id, flush_number, harvest_date, wet_weight_grams, dry_weight_grams, block_weight_grams, cost_estimated, notes)
+      VALUES (?, ?, ?, date('now'), ?, ?, ?, ?, ?)
+    `).run(id, batch.lineage_id, flushNumber, wetWeightGrams, dryWeightGrams ?? null, blockWeightGrams ?? null, cost_estimated, notes ?? null);
 
-    // Update batch flush count
-    db.prepare(`UPDATE batch SET flush_count = flush_count + 1, updated_at = datetime('now') WHERE id = ?`).run(id);
+    // Update batch flush count using the provided flush number
+    db.prepare(`UPDATE batch SET flush_count = MAX(COALESCE(flush_count, 0), ?), updated_at = datetime('now') WHERE id = ?`).run(flushNumber, id);
 
     // Senescence check: query avg BE for this lineage over last 90 days
     if (batch.lineage_id) {
@@ -292,7 +309,34 @@ router.get('/:id/traceback', (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: String(err) });
   }
 });
+// ── GET /api/batches/:id/photos ─────────────────────────────
+router.get('/:id/photos', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  try {
+    const photos = db.prepare(`SELECT * FROM batch_photo WHERE batch_id = ? ORDER BY captured_at DESC`).all(id);
+    res.json({ success: true, data: photos });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
 
+// ── POST /api/batches/:id/photos ────────────────────────────
+router.post('/:id/photos', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { photo_data_b64, notes } = req.body;
+  try {
+    const result = db.prepare(`
+      INSERT INTO batch_photo (batch_id, photo_data_b64, notes)
+      VALUES (?, ?, ?)
+    `).run(id, photo_data_b64, notes || null);
+    
+    res.json({ success: true, message: 'Photo saved.', data: { id: result.lastInsertRowid } });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
 // ── POST /api/batches ──────────────────────────────────────────
 router.post('/', (req: Request, res: Response) => {
   const db = getDb();
@@ -301,8 +345,9 @@ router.post('/', (req: Request, res: Response) => {
     const insert = db.prepare(`
       INSERT INTO batch (
         batch_id, species_id, lineage_id, stage, status, quantity,
-        colonization_start, colonization_target, fruiting_start, fruiting_target_end
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        weight_per_bag_lbs, colonization_start, colonization_target,
+        fruiting_start, fruiting_target_end
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = insert.run(
       b.batch_id || `B-${Date.now()}`,
@@ -311,6 +356,7 @@ router.post('/', (req: Request, res: Response) => {
       b.stage || 'INCUBATING',
       b.status || 'INCUBATING',
       b.quantity || 1,
+      b.weight_per_bag_lbs || null,
       b.colonization_start || null,
       b.colonization_target || null,
       b.fruiting_start || null,
@@ -335,13 +381,29 @@ router.put('/:id', (req: Request, res: Response) => {
         stage = COALESCE(@stage, stage),
         status = COALESCE(@status, status),
         quantity = COALESCE(@quantity, quantity),
+        weight_per_bag_lbs = COALESCE(@weight_per_bag_lbs, weight_per_bag_lbs),
         colonization_start = COALESCE(@colonization_start, colonization_start),
         colonization_target = COALESCE(@colonization_target, colonization_target),
         fruiting_start = COALESCE(@fruiting_start, fruiting_start),
         fruiting_target_end = COALESCE(@fruiting_target_end, fruiting_target_end),
+        notes = COALESCE(@notes, notes),
         updated_at = datetime('now')
       WHERE id = @id
-    `).run({ ...b, id });
+    `).run({
+      species_id: null,
+      lineage_id: null,
+      stage: null,
+      status: null,
+      quantity: null,
+      weight_per_bag_lbs: null,
+      colonization_start: null,
+      colonization_target: null,
+      fruiting_start: null,
+      fruiting_target_end: null,
+      notes: null,
+      ...b,
+      id
+    });
     res.json({ success: true, message: 'Batch updated' });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });

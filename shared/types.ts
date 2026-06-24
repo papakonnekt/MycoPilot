@@ -119,6 +119,7 @@ export interface SpeciesProfile {
   senescenceThresholdPct: number;
   maxGenerations: number;
   sporeCloneFreq: number;
+  priorityLevel: number;
   effectiveFrom: string;
   effectiveTo?: string;
 }
@@ -138,6 +139,8 @@ export interface HardwareSettings {
   dailyAvailableMins: number;
   schedulingHorizonDays: number;
   pcUnitCount: number;
+  defaultBagWeightLbs: number;
+  labDays?: number[]; // Array of days (0-6) the lab is open
   isActive: boolean;
   updatedAt?: string;
 }
@@ -320,6 +323,7 @@ export interface Task {
   createdBy: string;
   notes?: string;
   createdAt: string;
+  bagWeightLbs?: number;
   // Joined / computed
   speciesName?: string;
   batchRef?: string;

@@ -101,6 +101,26 @@ cron.schedule('0 * * * *', () => {
   }
 });
 
+// Daily at 3 AM: Backup the database
+cron.schedule('0 3 * * *', () => {
+  console.log('[CRON] Backing up database...');
+  try {
+    const fs = require('fs');
+    const dbPath = path.resolve(__dirname, '../../data/mycolab.sqlite');
+    const backupDir = path.resolve(__dirname, '../../data/backups');
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+    const backupPath = path.join(backupDir, `mycolab_backup_${new Date().toISOString().split('T')[0]}.sqlite`);
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, backupPath);
+      console.log(`[CRON] Backup created at ${backupPath}`);
+    }
+  } catch (err) {
+    console.error('[CRON] Backup error:', err);
+  }
+});
+
 // ── START ─────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`\n🍄 MycoScheduler API running on http://localhost:${PORT}`);

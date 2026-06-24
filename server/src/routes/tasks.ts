@@ -144,14 +144,80 @@ router.patch('/:id/complete', (req: Request, res: Response) => {
     }
 
     if (task.taskType === 'INOCULATE_GEN1') {
-      // Deduct LC from species aggregate
-      if (task.speciesId) {
-        db.prepare(`
-          UPDATE species
-          SET lc_volume_ml_available = MAX(0, lc_volume_ml_available - lc_injection_volume_ml)
-          WHERE id = ?
-        `).run(task.speciesId);
-        sideEffects.push('LC volume deducted from species aggregate.');
+      // Deduct LC from species aggregate or individual active jars
+      if (task.speciesId && task.batchId) {
+        const species = db.prepare('SELECT lc_injection_volume_ml FROM species WHERE id = ?').get(task.speciesId) as any;
+        const batch = db.prepare('SELECT quantity FROM batch WHERE id = ?').get(task.batchId) as any;
+        
+        if (species && batch) {
+          let amountToDeduct = (species.lc_injection_volume_ml || 10) * batch.quantity;
+          sideEffects.push(`Deducting ${amountToDeduct}ml total LC for ${batch.quantity} bags.`);
+          
+          // Try to deduct from active jars first
+          const jars = db.prepare(`SELECT id, current_volume_ml FROM genetic_material WHERE species_id = ? AND status = 'ACTIVE' AND current_volume_ml > 0 ORDER BY created_at ASC`).all(task.speciesId) as any[];
+          
+          for (const jar of jars) {
+            if (amountToDeduct <= 0) break;
+            const deduct = Math.min(jar.current_volume_ml, amountToDeduct);
+            amountToDeduct -= deduct;
+            const remaining = jar.current_volume_ml - deduct;
+            db.prepare(`UPDATE genetic_material SET current_volume_ml = ?, status = ? WHERE id = ?`)
+              .run(remaining, remaining <= 0 ? 'DEPLETED' : 'ACTIVE', jar.id);
+          }
+
+          if (amountToDeduct > 0) {
+            db.prepare(`
+              UPDATE species
+              SET lc_volume_ml_available = MAX(0, lc_volume_ml_available - ?)
+              WHERE id = ?
+            `).run(amountToDeduct, task.speciesId);
+          }
+        }
+      }
+    }
+
+    if (task.taskType === 'G2G_TRANSFER' || task.taskType === 'INOCULATE_BULK') {
+      if (task.speciesId && task.batchId) {
+        const profile = db.prepare(`SELECT gen1_to_gen2_ratio, gen2_to_bulk_spawn_pct FROM species_profile WHERE species_id = ? AND effective_to IS NULL`).get(task.speciesId) as any;
+        const hw = db.prepare(`SELECT default_bag_weight_lbs FROM hardware_settings LIMIT 1`).get() as any;
+        const batch = db.prepare(`SELECT quantity, weight_per_bag_lbs FROM batch WHERE id = ?`).get(task.batchId) as any;
+
+        if (profile && batch && hw) {
+          let bagsToPull = 0;
+          if (task.taskType === 'G2G_TRANSFER') {
+            const ratio = profile.gen1_to_gen2_ratio || 10;
+            bagsToPull = Math.ceil(batch.quantity / ratio);
+          } else {
+            const pct = profile.gen2_to_bulk_spawn_pct || 0.2;
+            const bulkWeight = batch.quantity * (batch.weight_per_bag_lbs || hw.default_bag_weight_lbs);
+            const spawnNeededLbs = bulkWeight * pct;
+            bagsToPull = Math.ceil(spawnNeededLbs / hw.default_bag_weight_lbs);
+          }
+
+          if (bagsToPull > 0) {
+            sideEffects.push(`Auto-pulled ${bagsToPull} spawn bags from fridge.`);
+            const fridgeBags = db.prepare(`
+              SELECT id, quantity_available, reserved_quantity 
+              FROM fridge_buffer 
+              WHERE species_id = ? AND (quantity_available - reserved_quantity) > 0 
+              ORDER BY date_added ASC
+            `).all(task.speciesId) as any[];
+
+            let remainingToPull = bagsToPull;
+            for (const fb of fridgeBags) {
+              if (remainingToPull <= 0) break;
+              const available = fb.quantity_available - fb.reserved_quantity;
+              const pull = Math.min(available, remainingToPull);
+              
+              remainingToPull -= pull;
+              
+              db.prepare(`UPDATE fridge_buffer SET quantity_available = quantity_available - ? WHERE id = ?`).run(pull, fb.id);
+            }
+            if (remainingToPull > 0) {
+              sideEffects.push(`WARNING: Short by ${remainingToPull} fridge bags!`);
+            }
+          }
+        }
       }
     }
 

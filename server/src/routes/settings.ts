@@ -14,7 +14,9 @@ router.get('/', (_req: Request, res: Response) => {
     }
 
     const species = db.prepare(`
-      SELECT s.*, sp.*
+      SELECT s.*, sp.*,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'AGAR_PLATE' AND gm.status = 'ACTIVE'), 0) AS agar_plates,
+        COALESCE((SELECT SUM(unit_count) FROM genetic_material gm WHERE gm.species_id = s.id AND gm.material_type = 'SPORE_PRINT' AND gm.status = 'ACTIVE'), 0) AS spore_prints
       FROM species s
       LEFT JOIN species_profile sp ON sp.species_id = s.id AND sp.effective_to IS NULL
       WHERE s.is_active = 1
@@ -54,19 +56,27 @@ router.post('/setup', (req: Request, res: Response) => {
         grain_cycle_mins, grain_prep_cool_mins,
         bulk_cycle_mins, bulk_prep_cool_mins,
         microlab_cycle_mins, microlab_prep_cool_mins,
-        daily_available_mins, scheduling_horizon_days
+        daily_available_mins, scheduling_horizon_days,
+        pc_unit_count, lab_days, default_bag_weight_lbs
       ) VALUES (
         @maxPcRunsPerDay, @maxBagsPerPcRun,
         @grainCycleMins, @grainPrepCoolMins,
         @bulkCycleMins, @bulkPrepCoolMins,
         @microlabCycleMins, @microlabPrepCoolMins,
-        @dailyAvailableMins, @schedulingHorizonDays
+        @dailyAvailableMins, @schedulingHorizonDays,
+        @pcUnitCount, @labDaysStr, @defaultBagWeightLbs
       )
     `);
 
     db.transaction(() => {
       // ── Hardware ─────────────────────────────────────────────
-      insertHw.run(s.hardware);
+      const hwParams = {
+        ...s.hardware,
+        pcUnitCount: s.hardware.pcUnitCount ?? 1,
+        labDaysStr: JSON.stringify(s.hardware.labDays ?? [1, 2, 3, 4, 5, 6]),
+        defaultBagWeightLbs: s.hardware.defaultBagWeightLbs ?? 5.0,
+      };
+      insertHw.run(hwParams);
 
       // ── Recipes (optional, sent from onboarding step 2) ──────
       const insertRecipe = db.prepare(`
@@ -104,8 +114,8 @@ router.post('/setup', (req: Request, res: Response) => {
           fruiting_days_min, fruiting_days_max,
           gen1_to_gen2_ratio, gen2_to_bulk_spawn_pct,
           target_biological_efficiency, senescence_threshold_pct,
-          max_generations, spore_clone_freq
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          max_generations, spore_clone_freq, priority_level
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertTargets = db.prepare(`
@@ -150,7 +160,7 @@ router.post('/setup', (req: Request, res: Response) => {
           sp.fruitingDaysMin ?? 7, sp.fruitingDaysMax ?? 14,
           sp.gen1ToGen2Ratio ?? 10, sp.gen2ToBulkSpawnPct ?? 0.2,
           sp.targetBiologicalEfficiency ?? 0.5, sp.senescenceThresholdPct ?? 0.2,
-          sp.maxGenerations ?? 3, sp.sporeCloneFreq ?? 3
+          sp.maxGenerations ?? 3, sp.sporeCloneFreq ?? 3, sp.priorityLevel ?? 3
         );
 
         // 3. Targets & Fridge
@@ -165,26 +175,28 @@ router.post('/setup', (req: Request, res: Response) => {
 
         // 5. Raw Materials (Inventory)
         if (sp.sterilizedGrains && sp.sterilizedGrains.length > 0) {
-          let totalLbs = 0;
-          const notesArr: string[] = [];
           for (const item of sp.sterilizedGrains) {
-            totalLbs += item.weightLbs * item.quantity;
-            notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
-          }
-          if (totalLbs > 0) {
-            insertRawMaterial.run(`Sterilized Grain (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-inoculate: ${notesArr.join(', ')}`);
+            if (item.quantity > 0 && item.weightLbs > 0) {
+              insertRawMaterial.run(
+                `Sterilized Grain (${sp.commonName}) - ${item.weightLbs} lb bags`,
+                'bags',
+                item.quantity,
+                `Ready-to-inoculate grain bags`
+              );
+            }
           }
         }
 
         if (sp.sterilizedSubstrate && sp.sterilizedSubstrate.length > 0) {
-          let totalLbs = 0;
-          const notesArr: string[] = [];
           for (const item of sp.sterilizedSubstrate) {
-            totalLbs += item.weightLbs * item.quantity;
-            notesArr.push(`${item.quantity}x ${item.weightLbs}lb bags`);
-          }
-          if (totalLbs > 0) {
-            insertRawMaterial.run(`Sterilized Substrate (${sp.commonName})`, 'lbs', totalLbs, `Ready-to-use: ${notesArr.join(', ')}`);
+            if (item.quantity > 0 && item.weightLbs > 0) {
+              insertRawMaterial.run(
+                `Sterilized Substrate (${sp.commonName}) - ${item.weightLbs} lb bags`,
+                'bags',
+                item.quantity,
+                `Ready-to-use substrate bags`
+              );
+            }
           }
         }
 
@@ -226,18 +238,24 @@ router.put('/hardware', (req: Request, res: Response) => {
   try {
     db.prepare(`
       UPDATE hardware_settings SET
-        max_pc_runs_per_day    = COALESCE(@maxPcRunsPerDay, max_pc_runs_per_day),
-        max_bags_per_pc_run    = COALESCE(@maxBagsPerPcRun, max_bags_per_pc_run),
-        grain_cycle_mins       = COALESCE(@grainCycleMins, grain_cycle_mins),
-        grain_prep_cool_mins   = COALESCE(@grainPrepCoolMins, grain_prep_cool_mins),
-        bulk_cycle_mins        = COALESCE(@bulkCycleMins, bulk_cycle_mins),
-        bulk_prep_cool_mins    = COALESCE(@bulkPrepCoolMins, bulk_prep_cool_mins),
-        microlab_cycle_mins    = COALESCE(@microlabCycleMins, microlab_cycle_mins),
-        microlab_prep_cool_mins= COALESCE(@microlabPrepCoolMins, microlab_prep_cool_mins),
-        daily_available_mins   = COALESCE(@dailyAvailableMins, daily_available_mins),
+        max_pc_runs_per_day    = COALESCE(@max_pc_runs_per_day, max_pc_runs_per_day),
+        max_bags_per_pc_run    = COALESCE(@max_bags_per_pc_run, max_bags_per_pc_run),
+        grain_cycle_mins       = COALESCE(@grain_cycle_mins, grain_cycle_mins),
+        grain_prep_cool_mins   = COALESCE(@grain_prep_cool_mins, grain_prep_cool_mins),
+        bulk_cycle_mins        = COALESCE(@bulk_cycle_mins, bulk_cycle_mins),
+        bulk_prep_cool_mins    = COALESCE(@bulk_prep_cool_mins, bulk_prep_cool_mins),
+        microlab_cycle_mins    = COALESCE(@microlab_cycle_mins, microlab_cycle_mins),
+        microlab_prep_cool_mins= COALESCE(@microlab_prep_cool_mins, microlab_prep_cool_mins),
+        daily_available_mins   = COALESCE(@daily_available_mins, daily_available_mins),
+        pc_unit_count          = COALESCE(@pc_unit_count, pc_unit_count),
+        default_bag_weight_lbs = COALESCE(@default_bag_weight_lbs, default_bag_weight_lbs),
+        lab_days               = COALESCE(@lab_days_str, lab_days),
         updated_at             = datetime('now')
       WHERE is_active = 1
-    `).run(s);
+    `).run({
+      ...s,
+      lab_days_str: s.lab_days ? JSON.stringify(s.lab_days) : null,
+    });
 
     res.json({ success: true, message: 'Hardware settings updated. Re-run scheduler to apply.' });
   } catch (err) {
@@ -270,6 +288,19 @@ router.put('/weekly-targets', (req: Request, res: Response) => {
   }
 });
 
+// ── PUT /api/settings/species/:id/protocol ────────────────────
+router.put('/species/:id/protocol', (req: Request, res: Response) => {
+  const db = getDb();
+  const { id } = req.params;
+  const { protocol_markdown } = req.body;
+  try {
+    db.prepare(`UPDATE species SET protocol_markdown = ? WHERE id = ?`).run(protocol_markdown, id);
+    res.json({ success: true, message: 'Protocol updated.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ── PUT /api/settings/species/:id/profile ────────────────────
 router.put('/species/:id/profile', (req: Request, res: Response) => {
   const db = getDb();
@@ -277,33 +308,104 @@ router.put('/species/:id/profile', (req: Request, res: Response) => {
   const p = req.body;
 
   try {
-    // Expire current profile
-    db.prepare(`UPDATE species_profile SET effective_to = date('now') WHERE species_id = ? AND effective_to IS NULL`).run(id);
+    const runUpdate = db.transaction(() => {
+      // 1. Expire current profile
+      db.prepare(`UPDATE species_profile SET effective_to = date('now') WHERE species_id = ? AND effective_to IS NULL`).run(id);
 
-    // Insert new version
-    db.prepare(`
-      INSERT INTO species_profile (
-        species_id,
-        lc_to_gen1_days_min, lc_to_gen1_days_max,
-        gen2_colonization_days_min, gen2_colonization_days_max,
-        bulk_colonization_days_min, bulk_colonization_days_max,
-        fruiting_days_min, fruiting_days_max,
-        gen1_to_gen2_ratio, gen2_to_bulk_spawn_pct,
-        target_biological_efficiency, senescence_threshold_pct,
-        max_generations, spore_clone_freq
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      p.lcToGen1DaysMin, p.lcToGen1DaysMax,
-      p.gen2ColonizationDaysMin, p.gen2ColonizationDaysMax,
-      p.bulkColonizationDaysMin, p.bulkColonizationDaysMax,
-      p.fruitingDaysMin, p.fruitingDaysMax,
-      p.gen1ToGen2Ratio, p.gen2ToBulkSpawnPct,
-      p.targetBiologicalEfficiency, p.senescenceThresholdPct,
-      p.maxGenerations, p.sporeCloneFreq
-    );
+      // 2. Insert new version
+      db.prepare(`
+        INSERT INTO species_profile (
+          species_id,
+          lc_to_gen1_days_min, lc_to_gen1_days_max,
+          gen2_colonization_days_min, gen2_colonization_days_max,
+          bulk_colonization_days_min, bulk_colonization_days_max,
+          fruiting_days_min, fruiting_days_max,
+          gen1_to_gen2_ratio, gen2_to_bulk_spawn_pct,
+          target_biological_efficiency, senescence_threshold_pct,
+          max_generations, spore_clone_freq
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        p.lcToGen1DaysMin, p.lcToGen1DaysMax,
+        p.gen2ColonizationDaysMin, p.gen2ColonizationDaysMax,
+        p.bulkColonizationDaysMin, p.bulkColonizationDaysMax,
+        p.fruitingDaysMin, p.fruitingDaysMax,
+        p.gen1ToGen2Ratio, p.gen2ToBulkSpawnPct,
+        p.targetBiologicalEfficiency, p.senescenceThresholdPct,
+        p.maxGenerations, p.sporeCloneFreq
+      );
 
-    res.json({ success: true, message: 'Species profile updated (version history preserved).' });
+      // 3. Update lc_injection_volume_ml in species
+      if (p.lcInjectionVolumeMl !== undefined) {
+        db.prepare(`UPDATE species SET lc_injection_volume_ml = ? WHERE id = ?`).run(p.lcInjectionVolumeMl, id);
+      }
+
+      // 4. Update fridge_thresholds
+      if (p.minGen2Bags !== undefined || p.targetGen2Bags !== undefined) {
+        db.prepare(`
+          INSERT INTO fridge_thresholds (species_id, min_gen2_bags, target_gen2_bags)
+          VALUES (?, ?, ?)
+          ON CONFLICT(species_id) DO UPDATE SET
+            min_gen2_bags = COALESCE(excluded.min_gen2_bags, fridge_thresholds.min_gen2_bags),
+            target_gen2_bags = COALESCE(excluded.target_gen2_bags, fridge_thresholds.target_gen2_bags)
+        `).run(id, p.minGen2Bags, p.targetGen2Bags);
+      }
+
+      // 5. Update weekly_targets
+      if (p.targetBlocksPerWk !== undefined) {
+        db.prepare(`
+          INSERT INTO weekly_targets (species_id, target_blocks_per_wk, is_active)
+          VALUES (?, ?, 1)
+          ON CONFLICT(species_id) DO UPDATE SET
+            target_blocks_per_wk = excluded.target_blocks_per_wk,
+            is_active = 1
+        `).run(id, p.targetBlocksPerWk);
+      }
+    });
+
+    runUpdate();
+
+    res.json({ success: true, message: 'Species profile and targets updated.' });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── POST /api/settings/backup ─────────────────────────────────
+import fs from 'fs';
+import path from 'path';
+
+router.post('/backup', (req: Request, res: Response) => {
+  try {
+    const dbPath = path.resolve(__dirname, '../../data/mycolab.sqlite');
+    const backupPath = path.resolve(__dirname, `../../data/mycolab_backup_${Date.now()}.sqlite`);
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, backupPath);
+      res.json({ success: true, message: `Backup created at ${backupPath}` });
+    } else {
+      res.status(404).json({ success: false, error: 'Database file not found.' });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
+// ── POST /api/settings/reset ──────────────────────────────────
+router.post('/reset', (req: Request, res: Response) => {
+  const db = getDb();
+  try {
+    const runReset = db.transaction(() => {
+      db.prepare(`DELETE FROM task`).run();
+      db.prepare(`DELETE FROM batch_photo`).run();
+      db.prepare(`DELETE FROM batch`).run();
+      db.prepare(`DELETE FROM pc_run`).run();
+      db.prepare(`DELETE FROM lineage`).run();
+      db.prepare(`DELETE FROM genetic_material`).run();
+      // Reset sequences
+      db.prepare(`UPDATE sqlite_sequence SET seq = 0 WHERE name IN ('task', 'batch_photo', 'batch', 'pc_run', 'lineage', 'genetic_material')`).run();
+    });
+    runReset();
+    res.json({ success: true, message: 'All batches, tasks, and genetic materials have been wiped. Settings and species were preserved.' });
   } catch (err) {
     res.status(500).json({ success: false, error: String(err) });
   }

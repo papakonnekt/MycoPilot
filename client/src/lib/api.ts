@@ -186,13 +186,16 @@ export interface BatchRow {
   source_pc_run_id: number | null
   source_genetic_id: number | null
   stage: string
+  protocol_markdown?: string | null
   status: string
   quantity: number
+  weight_per_bag_lbs: number | null
   colonization_start: string | null
   colonization_target: string | null
   fruiting_start: string | null
   fruiting_target_end: string | null
   flush_count: number
+  notes: string | null
   created_at: string
   updated_at: string
   // Joined
@@ -202,7 +205,6 @@ export interface BatchRow {
   // /incubating only
   days_remaining?: number | null
   pct_complete?: number | null
-  is_contaminated?: number | boolean
 }
 
 /** raw_material row — server/src/routes/inventory.ts */
@@ -227,6 +229,8 @@ export interface SpeciesLCStatusRow {
   lc_volume_ml_available: number
   lc_restock_threshold_ml: number
   lc_is_low: number | boolean
+  agar_plates: number
+  spore_prints: number
 }
 
 /** fridge_summary view row */
@@ -299,6 +303,8 @@ export interface HardwareSettingsRow {
   homogeneous_by_bag_type: number | boolean
   daily_available_mins: number
   scheduling_horizon_days: number
+  pc_unit_count: number
+  lab_days: string
   is_active: number | boolean
   updated_at: string
 }
@@ -336,6 +342,7 @@ export interface SettingsSpeciesRow {
   lc_injection_volume_ml: number
   lc_restock_threshold_ml: number
   notes: string | null
+  protocol_markdown?: string | null
   is_active: number | boolean
   created_at: string
   // species_profile (snake_case columns from JOIN)
@@ -354,6 +361,7 @@ export interface SettingsSpeciesRow {
   senescence_threshold_pct?: number
   max_generations?: number
   spore_clone_freq?: number
+  priority_level?: number
   effective_from?: string
   effective_to?: string | null
 }
@@ -396,6 +404,7 @@ export function setupSettings(
       senescenceThresholdPct?: number,
       maxGenerations?: number,
       sporeCloneFreq?: number,
+      priorityLevel?: number,
 
       // Targets
       weeklyTargetBlocks?: number,
@@ -426,7 +435,10 @@ export interface SpeciesRow {
   lc_volume_ml_available: number
   lc_injection_volume_ml: number
   lc_restock_threshold_ml: number
+  agar_plates: number
+  spore_prints: number
   notes: string | null
+  protocol_markdown?: string | null
   is_active: number | boolean
   created_at: string
   // profile
@@ -445,6 +457,7 @@ export interface SpeciesRow {
   senescence_threshold_pct?: number
   max_generations?: number
   spore_clone_freq?: number
+  priority_level?: number
   effective_from?: string
   effective_to?: string | null
   // thresholds
@@ -654,9 +667,83 @@ export function restockLc(
   })
 }
 
-/** GET /settings */
-export function getSettings(): Promise<SettingsPayload> {
+/** POST /inventory/materials */
+export function createMaterial(
+  payload: { materialName: string; unit: string; quantityOnHand?: number; reorderThreshold?: number; reorderQuantity?: number; costPerUnit?: number; notes?: string }
+): Promise<{ success: boolean; data: { id: number } }> {
+  return request('/inventory/materials', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** PUT /inventory/materials/:id */
+export function updateMaterial(
+  id: number,
+  payload: { materialName: string; unit: string; quantityOnHand?: number; reorderThreshold?: number; reorderQuantity?: number; costPerUnit?: number; notes?: string }
+): Promise<{ success: boolean }> {
+  return request(`/inventory/materials/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** DELETE /inventory/materials/:id */
+export function deleteMaterial(
+  id: number
+): Promise<{ success: boolean }> {
+  return request(`/inventory/materials/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+/** GET /recipes */
+export function getRecipes(): Promise<{ success: boolean; data: any[] }> {
+  return request('/recipes')
+}
+
+/** POST /recipes */
+export function createRecipe(
+  payload: { name: string; notes?: string; ingredients: { ingredient: string; amount?: number; unit?: string; notes?: string }[] }
+): Promise<{ success: boolean; data: { id: number } }> {
+  return request('/recipes', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** PUT /recipes/:id */
+export function updateRecipe(
+  id: number,
+  payload: { name: string; notes?: string; ingredients: { ingredient: string; amount?: number; unit?: string; notes?: string }[] }
+): Promise<{ success: boolean }> {
+  return request(`/recipes/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+/** DELETE /recipes/:id */
+export function deleteRecipe(
+  id: number
+): Promise<{ success: boolean }> {
+  return request(`/recipes/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+// ── SETTINGS ──────────────────────────────────────────────────
+
+export async function getSettings(): Promise<SettingsPayload> {
   return request<SettingsPayload>('/settings')
+}
+
+export async function createBackup(): Promise<{ message: string }> {
+  return request<{ message: string }>('/settings/backup', { method: 'POST' })
+}
+
+export async function resetSetup(): Promise<{ message: string }> {
+  return request<{ message: string }>('/settings/reset', { method: 'POST' })
 }
 
 /** PUT /settings/hardware */
@@ -685,8 +772,9 @@ export function updateSpeciesProfile(
     gen2ToBulkSpawnPct: number
     targetBiologicalEfficiency: number
     senescenceThresholdPct: number
-    maxGenerations: number
-    sporeCloneFreq: number
+    maxGenerations?: number
+    sporeCloneFreq?: number
+    priorityLevel?: number
   },
 ): Promise<{ success: boolean; message: string }> {
   return request(`/settings/species/${speciesId}/profile`, {
@@ -696,12 +784,17 @@ export function updateSpeciesProfile(
 }
 
 /** PUT /settings/weekly-targets */
-export function updateWeeklyTargets(
-  targets: Array<{ speciesId: number; targetBlocksPerWk: number }>,
-): Promise<{ success: boolean; message: string }> {
+export function updateWeeklyTargets(targets: Array<{ speciesId: number; targetBlocksPerWk: number }>): Promise<void> {
   return request('/settings/weekly-targets', {
     method: 'PUT',
-    body: JSON.stringify({ targets }),
+    body: JSON.stringify({ targets })
+  })
+}
+
+export function saveSpeciesProtocol(id: number | string, protocol_markdown: string): Promise<void> {
+  return request(`/settings/species/${id}/protocol`, {
+    method: 'PUT',
+    body: JSON.stringify({ protocol_markdown })
   })
 }
 
@@ -919,5 +1012,28 @@ export interface PcRunAnalyticsRow {
 /** GET /analytics/pc-runs — PC run history and contam rate */
 export function getPcRunAnalytics(): Promise<PcRunAnalyticsRow[]> {
   return request<PcRunAnalyticsRow[]>('/analytics/pc-runs')
+}
+
+// ─────────────────────────────────────────────────────────────
+// BATCH PHOTOS
+// ─────────────────────────────────────────────────────────────
+
+export interface BatchPhotoRow {
+  id: number;
+  batch_id: number;
+  photo_data_b64: string;
+  captured_at: string;
+  notes: string | null;
+}
+
+export function getBatchPhotos(batchId: string | number): Promise<BatchPhotoRow[]> {
+  return request<BatchPhotoRow[]>(`/batches/${batchId}/photos`)
+}
+
+export function saveBatchPhoto(batchId: string | number, b64Data: string, notes?: string): Promise<{ id: number }> {
+  return request<{ id: number }>(`/batches/${batchId}/photos`, {
+    method: 'POST',
+    body: JSON.stringify({ photo_data_b64: b64Data, notes }),
+  })
 }
 export interface CapacityDay { date: string; pc_runs: number; max_pc_runs: number; task_mins: number; max_task_mins: number; }

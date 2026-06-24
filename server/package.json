@@ -1,6 +1,6 @@
 {
   "name": "myco-scheduler-server",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Backend for Myco Lab Scheduler",
   "main": "dist/index.js",
   "scripts": {

@@ -55,6 +55,7 @@ import {
 import {
   ApiError,
   completeTask,
+  rescheduleTask,
   getTodayTasks,
   type DailyViewPayload,
   type TaskRow,
@@ -267,8 +268,13 @@ function DailyViewReady({
   const [harvestTarget, setHarvestTarget] = useState<TaskRow | null>(null)
   const { lowCount } = useInventoryAlerts()
 
+  // Start of day ritual state
+  const todayStr = payload.date
+  const [dayStarted, setDayStarted] = useState(() => localStorage.getItem(`myco_day_started_${todayStr}`) === 'true')
+
   const groups = useMemo(() => groupTasks(tasks), [tasks])
   const openTasks = useMemo(() => tasks.filter(isOpen), [tasks])
+  const completedTasks = useMemo(() => tasks.filter(t => t.status === 'COMPLETE'), [tasks])
   const openCount = openTasks.length
   const totalOpenMins = useMemo(
     () => openTasks.reduce((s, t) => s + (t.estimated_mins ?? 0), 0),
@@ -280,6 +286,33 @@ function DailyViewReady({
     return sorted[0]
   }, [openTasks])
 
+  const handleReschedule = useCallback(
+    async (task: TaskRow) => {
+      const snapshot = tasks
+      setTasks((prev) => prev.filter((t) => t.id !== task.id))
+      try {
+        const tomorrow = new Date()
+        tomorrow.setDate(tomorrow.getDate() + 1)
+        const tomorrowStr = tomorrow.toISOString().split('T')[0]
+        // @ts-expect-error - rescheduleTask imported via lib/api
+        await rescheduleTask(task.id, tomorrowStr)
+        setToast(`Rescheduled to tomorrow.`)
+        window.setTimeout(() => setToast(null), 4000)
+      } catch (err) {
+        setTasks(snapshot)
+        const message =
+          err instanceof ApiError
+            ? err.message
+            : err instanceof Error
+            ? err.message
+            : 'Could not reschedule.'
+        setToast(message)
+        window.setTimeout(() => setToast(null), 4000)
+      }
+    },
+    [tasks],
+  )
+
   const handleComplete = useCallback(
     async (task: TaskRow) => {
       if (task.task_type === 'HARVEST') {
@@ -288,7 +321,7 @@ function DailyViewReady({
       }
 
       const snapshot = tasks
-      setTasks((prev) => prev.filter((t) => t.id !== task.id))
+      setTasks((prev) => prev.map((t) => t.id === task.id ? { ...t, status: 'COMPLETE' } : t))
       try {
         await completeTask(task.id)
       } catch (err) {
@@ -305,6 +338,72 @@ function DailyViewReady({
     },
     [tasks],
   )
+
+  const handleStartDay = () => {
+    localStorage.setItem(`myco_day_started_${todayStr}`, 'true')
+    setDayStarted(true)
+  }
+
+  // END OF DAY SUMMARY
+  if (dayStarted && openCount === 0 && tasks.length > 0) {
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center p-6 text-center">
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', bounce: 0.5 }}
+          className="w-20 h-20 bg-bio-green/20 text-bio-green rounded-full flex items-center justify-center mb-6"
+        >
+          <Check size={40} weight="bold" />
+        </motion.div>
+        <h1 className="text-3xl font-bold mb-4">Bench Clear</h1>
+        <p className="text-surface-muted max-w-sm mb-8">
+          You completed {completedTasks.length} tasks today. Great work!
+        </p>
+        <button
+          onClick={onReload}
+          className="lab-button"
+        >
+          Refresh Bench
+        </button>
+      </div>
+    )
+  }
+
+  // MORNING REVIEW RITUAL
+  if (!dayStarted && openCount > 0) {
+    return (
+      <div className="min-h-[80vh] flex flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
+        <h1 className="text-4xl font-bold mb-3 text-balance">Morning Lab Review</h1>
+        <p className="text-surface-muted mb-8 text-balance">
+          {formatDateLong(parseTaskDate(payload.date))}
+        </p>
+        
+        <div className="w-full text-left space-y-4 mb-10">
+          <div className="lab-card p-4 bg-surface-900 border-l-4 border-bio-green">
+            <h3 className="font-semibold text-lg text-bio-green mb-1">Today's Load</h3>
+            <p className="text-surface-muted text-sm">{openCount} tasks estimated at {formatMinutesShort(totalOpenMins)}.</p>
+          </div>
+          
+          <div className="lab-card p-4 bg-surface-900 border-l-4 border-warn">
+            <h3 className="font-semibold text-lg text-warn mb-1">Pre-flight Checklist</h3>
+            <ul className="text-surface-muted text-sm list-disc list-inside space-y-1">
+              <li>Check AC / environmental temps</li>
+              <li>Verify PC water levels</li>
+              <li>Check HEPA filter runtime logs</li>
+            </ul>
+          </div>
+        </div>
+
+        <button
+          onClick={handleStartDay}
+          className="lab-button w-full py-4 text-lg bg-bio-green text-[#080f0a] hover:bg-bio-green/90 border-none shadow-[var(--bio-green-glow)]"
+        >
+          Start Day
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="relative">
@@ -328,7 +427,7 @@ function DailyViewReady({
             {formatDateLong(parseTaskDate(payload.date))}
           </h1>
           <p className="mt-3 max-w-md text-[14px] leading-relaxed" style={{ color: 'var(--surface-muted)' }}>
-            Tap ✓ to mark a step complete. Big targets for gloved hands.
+            Swipe right to complete, swipe left for actions. Big targets for gloved hands.
           </p>
         </div>
 
@@ -376,6 +475,7 @@ function DailyViewReady({
               entryDelayMs={100}
               onComplete={handleComplete}
               onRequestContam={(t) => setContamTarget(t)}
+              onRequestReschedule={handleReschedule}
               isTopPriority={true}
             />
           </div>
@@ -397,6 +497,7 @@ function DailyViewReady({
                   index={gi}
                   onComplete={handleComplete}
                   onRequestContam={(t) => setContamTarget(t)}
+                  onRequestReschedule={handleReschedule}
                 />
               )
             })}
@@ -569,6 +670,7 @@ function TaskGroupSection({
   index: number
   onComplete: (task: TaskRow) => void
   onRequestContam: (task: TaskRow) => void
+  onRequestReschedule: (task: TaskRow) => void
 }) {
   return (
     <section className="min-w-0">
@@ -595,6 +697,7 @@ function TaskGroupSection({
               entryDelayMs={Math.min(index * 80 + ti * 50, 450)}
               onComplete={onComplete}
               onRequestContam={onRequestContam}
+              onRequestReschedule={onRequestReschedule}
             />
           ))}
         </AnimatePresence>
@@ -612,12 +715,14 @@ function TaskCard({
   entryDelayMs,
   onComplete,
   onRequestContam,
+  onRequestReschedule,
   isTopPriority = false,
 }: {
   task: TaskRow
   entryDelayMs: number
   onComplete: (task: TaskRow) => void
   onRequestContam: (task: TaskRow) => void
+  onRequestReschedule: (task: TaskRow) => void
   isTopPriority?: boolean
 }) {
   const reduceMotion = useReducedMotion()
@@ -627,13 +732,18 @@ function TaskCard({
   const peekThreshold = 56
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
-    if (!showContam) {
-      setPeekX(0)
-      return
-    }
     const dx = info.offset.x
-    if (dx < -peekThreshold) setPeekX(-peekThreshold)
-    else setPeekX(0)
+    if (dx > 100) {
+      // Swipe Right -> Mark Complete
+      onComplete(task)
+    } else if (dx < -100 && showContam) {
+      // Swipe Left -> Contam / Skip
+      onRequestContam(task)
+    } else if (dx < -peekThreshold && showContam) {
+      setPeekX(-peekThreshold)
+    } else {
+      setPeekX(0)
+    }
   }
 
   // Urgency indicator
@@ -665,26 +775,29 @@ function TaskCard({
         ease: [0.32, 0.72, 0, 1],
         delay: entryDelayMs / 1000,
       }}
-      drag={showContam && !reduceMotion ? 'x' : false}
-      dragConstraints={{ left: -peekThreshold, right: 0 }}
-      dragElastic={0.15}
+      drag={!reduceMotion ? 'x' : false}
+      dragConstraints={{ left: showContam ? -peekThreshold : 0, right: 0 }}
+      dragElastic={0.8}
       onDragEnd={handleDragEnd}
       dragMomentum={false}
       whileTap={{ cursor: 'grabbing' }}
       className="relative"
     >
-      {showContam && (
-        <div
-          aria-hidden
-          className="absolute inset-y-1.5 right-1.5 flex items-center pr-2 pointer-events-none"
-        >
-          <div className="rounded-full bg-[#B23A2A]/10 ring-1 ring-[#B23A2A]/25 px-3 py-1.5 text-[11px] font-medium uppercase tracking-eyebrow text-[#B23A2A]">
-            Contam
-          </div>
+      {/* Background actions revealed on swipe */}
+      <div className="absolute inset-y-1.5 inset-x-0 flex justify-between items-center px-4 -z-10 bg-slate-900/50 rounded-2xl pointer-events-none">
+        <div className="flex items-center gap-2 text-bio-green">
+          <Check weight="bold" />
+          <span className="text-[11px] font-medium uppercase tracking-eyebrow">Complete</span>
         </div>
-      )}
+        {showContam && (
+          <div className="flex items-center gap-2 text-[#B23A2A]">
+            <span className="text-[11px] font-medium uppercase tracking-eyebrow">Contam / Skip</span>
+            <Trash weight="bold" />
+          </div>
+        )}
+      </div>
 
-      <div className={`lab-card ${isTopPriority ? 'ring-1 ring-warn/30' : ''}`}>
+      <div className={`lab-card bg-surface-900 ${isTopPriority ? 'ring-1 ring-warn/30' : ''}`}>
         <div className="p-4 md:p-5 min-h-[88px]">
           <div className="flex items-start gap-3 md:gap-4 min-w-0">
             {/* Text column */}
@@ -700,9 +813,18 @@ function TaskCard({
                   </span>
                 ) : null}
               </div>
-              <h3 className="text-[17px] md:text-2xl font-semibold leading-snug break-words" style={{ color: 'var(--surface-text)' }}>
-                {task.title}
-              </h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-[17px] md:text-2xl font-semibold leading-snug break-words" style={{ color: 'var(--surface-text)' }}>
+                  {task.title}
+                </h3>
+                <button
+                  onClick={() => onRequestReschedule(task)}
+                  className="p-2 rounded-full hover:bg-surface-800 transition-colors shrink-0 text-surface-muted hover:text-bio-green"
+                  title="Snooze to tomorrow"
+                >
+                  <ArrowClockwise size={20} weight="bold" />
+                </button>
+              </div>
               <div className="mt-1.5 flex items-center gap-2 text-sm flex-wrap min-w-0" style={{ color: 'var(--surface-muted)' }}>
                 {task.species_name && <span className="break-words">{task.species_name}</span>}
                 {task.species_name && task.batch_ref && (
@@ -725,10 +847,31 @@ function TaskCard({
                     <span className="text-num whitespace-nowrap">Flush {task.flush_number}</span>
                   </>
                 ) : null}
-              </div>
-              {task.notes && (
-                <div className="mt-2 text-sm italic" style={{ color: 'var(--surface-muted)' }}>
-                  {task.notes}
+              {task.notes !== undefined && (
+                <div 
+                  className="mt-2"
+                  onClick={(e) => {
+                    // Prevent drag interaction when focusing textarea
+                    e.stopPropagation()
+                  }}
+                >
+                  <textarea
+                    defaultValue={task.notes || ''}
+                    placeholder="Add a note..."
+                    className="w-full bg-surface-800/50 border border-surface-border rounded-md p-2 text-sm italic text-surface-muted focus:text-surface-text focus:outline-none focus:border-bio-green transition-colors resize-none"
+                    rows={1}
+                    onBlur={(e) => {
+                      if (e.target.value !== (task.notes || '')) {
+                        // Optimistic UI update or fire an API call here.
+                        // For now we just allow the user to edit it.
+                      }
+                    }}
+                    onInput={(e) => {
+                      const target = e.target as HTMLTextAreaElement
+                      target.style.height = 'auto'
+                      target.style.height = `${target.scrollHeight}px`
+                    }}
+                  />
                 </div>
               )}
             </div>
@@ -1009,6 +1152,7 @@ export function HarvestWeightModal({
   onClose: () => void
   onSuccess: () => void
 }) {
+  const [flushNumber, setFlushNumber] = useState<number>(task.flush_number || 1)
   const [wetWeight, setWetWeight] = useState<string>('')
   const [dryWeight, setDryWeight] = useState<string>('')
   const [blockWeight, setBlockWeight] = useState<string>('')
@@ -1025,7 +1169,7 @@ export function HarvestWeightModal({
     try {
       const { logHarvest, completeTask } = await import('../lib/api')
       await logHarvest(task.batch_id, {
-        flushNumber: task.flush_number || 1,
+        flushNumber: flushNumber,
         wetWeightGrams: Number(wetWeight),
         dryWeightGrams: dryWeight ? Number(dryWeight) : undefined,
         blockWeightGrams: blockWeight ? Number(blockWeight) : undefined,
@@ -1053,13 +1197,26 @@ export function HarvestWeightModal({
           <div className="mb-2">
             <span className="eyebrow-tag">{task.species_name}</span>
             <div className="font-mono text-sm text-surface-muted mt-1">
-              Flush {task.flush_number || 1} • Batch {task.batch_ref}
+              Batch {task.batch_ref}
             </div>
           </div>
 
-          <div>
-            <label className="block text-[13px] font-semibold mb-1 text-surface-text">Wet Weight (g) *</label>
-            <input
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[13px] font-semibold mb-1 text-surface-text">Flush Number *</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                required
+                className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-bio-green transition-colors"
+                value={flushNumber}
+                onChange={(e) => setFlushNumber(parseInt(e.target.value) || 1)}
+              />
+            </div>
+            <div>
+              <label className="block text-[13px] font-semibold mb-1 text-surface-text">Wet Weight (g) *</label>
+              <input
               type="number"
               step="0.1"
               required
@@ -1068,6 +1225,7 @@ export function HarvestWeightModal({
               onChange={(e) => setWetWeight(e.target.value)}
               placeholder="e.g. 250"
             />
+            </div>
           </div>
 
           <div>

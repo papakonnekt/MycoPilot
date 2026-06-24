@@ -1,7 +1,7 @@
 {
   "name": "client",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,12 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/camera": "^8.2.0",
     "@capacitor/core": "^8.4.1",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.40.0",
     "phosphor-react": "^1.4.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.0"
   },
   "devDependencies": {

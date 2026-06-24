@@ -42,10 +42,13 @@ import {
   type BatchRow,
   type SpeciesRow,
   type LineageRow,
-  updateBatchProgress
+  updateBatchProgress,
+  updateBatch
 } from '../lib/api'
 import { HelpTooltip } from '../components/HelpTooltip'
 import { ServerUrlModal } from '../components/ServerUrlModal'
+import { BatchPhotoTimeline } from '../components/BatchPhotoTimeline'
+import ReactMarkdown from 'react-markdown'
 
 // ─────────────────────────────────────────────────────────────
 // TYPES
@@ -288,9 +291,6 @@ function IncubatingReady({
     const filtered = rows.filter((b) => {
       const status = (b.status ?? '').toUpperCase()
       if (TERMINAL_STATUSES.has(status)) return false
-      const ic = (b as unknown as { is_contaminated?: number | boolean })
-        .is_contaminated
-      if (ic === 1 || ic === true) return false
       return true
     })
 
@@ -541,6 +541,33 @@ function BatchCard({
     setLocalPct(pct)
   }, [pct])
 
+  const [notes, setNotes] = useState(row.notes || '')
+  const [saveNotesStatus, setSaveNotesStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const saveNotesTimer = useRef<number | null>(null)
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    setNotes(val)
+    setSaveNotesStatus('saving')
+    
+    if (saveNotesTimer.current) window.clearTimeout(saveNotesTimer.current)
+    saveNotesTimer.current = window.setTimeout(async () => {
+      try {
+        await updateBatch(row.id, { notes: val })
+        setSaveNotesStatus('saved')
+        setTimeout(() => setSaveNotesStatus('idle'), 2000)
+      } catch (err) {
+        setSaveNotesStatus('error')
+      }
+    }, 800)
+  }
+
+  useEffect(() => {
+    return () => {
+      if (saveNotesTimer.current) window.clearTimeout(saveNotesTimer.current)
+    }
+  }, [])
+
   const widthMV = useMotionValue(0)
   const widthPct = useTransform(widthMV, (v) => `${v}%`)
 
@@ -717,6 +744,18 @@ function BatchCard({
                 {' · '}
                 <span className="text-num">{targetStr}</span>
               </span>
+            </div>
+
+            <div className="mt-4">
+              <textarea
+                value={notes}
+                onChange={handleNotesChange}
+                placeholder="Batch notes/observations..."
+                className="w-full bg-surface-900 border border-surface-border rounded-lg p-2.5 text-sm text-surface-text focus:outline-none focus:border-bio-green transition-colors resize-y min-h-[60px]"
+              />
+              {saveNotesStatus === 'saving' && <span className="text-[10px] text-surface-muted ml-1">Saving...</span>}
+              {saveNotesStatus === 'saved' && <span className="text-[10px] text-bio-green ml-1">Saved</span>}
+              {saveNotesStatus === 'error' && <span className="text-[10px] text-danger ml-1">Failed to save</span>}
             </div>
           </div>
 
@@ -1057,6 +1096,7 @@ function NewBatchModal({
   const [speciesId, setSpeciesId] = useState<number | ''>('')
   const [lineageId, setLineageId] = useState<number | ''>('')
   const [stage, setStage] = useState('GEN1_GRAIN')
+  const [weightPerBagLbs, setWeightPerBagLbs] = useState<number | ''>('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -1094,6 +1134,7 @@ function NewBatchModal({
         species_id: Number(speciesId),
         lineage_id: lineageId ? Number(lineageId) : null,
         stage,
+        weight_per_bag_lbs: weightPerBagLbs ? Number(weightPerBagLbs) : null,
       })
       onSuccess()
     } catch (err: any) {
@@ -1154,6 +1195,18 @@ function NewBatchModal({
               <option value="BULK_BLOCK">Bulk Block</option>
               <option value="FRUITING">Fruiting</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Bag Weight (lbs)</label>
+            <input
+              type="number"
+              step="0.1"
+              min="0.1"
+              className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2 text-surface-text outline-none focus:border-bio-green transition-colors placeholder:text-surface-muted"
+              placeholder="Leave empty for hardware default"
+              value={weightPerBagLbs}
+              onChange={(e) => setWeightPerBagLbs(e.target.value ? Number(e.target.value) : '')}
+            />
           </div>
 
           {error && <div className="p-3 bg-danger-dim text-danger text-sm rounded-lg">{error}</div>}
@@ -1421,8 +1474,34 @@ function BatchDetailSheet({
                 <span className="text-surface-muted text-sm">Recipe</span>
                 <span className="font-mono text-sm text-surface-text">{row.recipe_id ? `Recipe #${row.recipe_id}` : 'Standard'}</span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-surface-muted text-sm">Weight / Bag</span>
+                <span className="font-mono text-sm text-surface-text">{row.weight_per_bag_lbs ? `${row.weight_per_bag_lbs} lbs` : 'Default'}</span>
+              </div>
             </div>
           </div>
+
+          {row.protocol_markdown && (
+            <div className="lab-card overflow-hidden">
+              <div className="p-4 border-b border-surface-border flex items-center justify-between">
+                <h3 className="font-semibold text-surface-text">Standard Operating Procedure</h3>
+              </div>
+              <div className="p-4 text-surface-muted text-sm" style={{
+                // Basic markdown resets since we don't have tailwind typography plugin
+                ['--tw-prose-body']: 'var(--surface-muted)',
+              }}>
+                <div className="[&>h1]:text-2xl [&>h1]:font-bold [&>h1]:mb-4 [&>h1]:text-surface-text
+                                [&>h2]:text-xl [&>h2]:font-bold [&>h2]:mt-6 [&>h2]:mb-3 [&>h2]:text-surface-text
+                                [&>h3]:text-lg [&>h3]:font-semibold [&>h3]:mt-5 [&>h3]:mb-2 [&>h3]:text-surface-text
+                                [&>p]:mb-4 [&>ul]:list-disc [&>ul]:pl-5 [&>ul]:mb-4 [&>ol]:list-decimal [&>ol]:pl-5 [&>ol]:mb-4
+                                [&>li]:mb-1 [&>a]:text-bio-green [&>a]:underline [&>blockquote]:border-l-4 [&>blockquote]:border-surface-border [&>blockquote]:pl-4 [&>blockquote]:italic">
+                  <ReactMarkdown>{row.protocol_markdown}</ReactMarkdown>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <BatchPhotoTimeline batchId={row.id} />
 
           <button
             onClick={() => {
