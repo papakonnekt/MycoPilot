@@ -96,7 +96,7 @@ function DayRange({
           className="lab-input flex-1 text-center"
           value={min}
           onChange={e => {
-            const v = parseInt(e.target.value) || 0;
+            const v = intVal(e.target.value);
             onMin(v);
             if (v > max) onMax(v);
           }}
@@ -107,7 +107,7 @@ function DayRange({
           className="lab-input flex-1 text-center"
           value={max}
           onChange={e => {
-            const v = parseInt(e.target.value) || 0;
+            const v = intVal(e.target.value);
             onMax(v);
             if (v < min) onMin(v);
           }}
@@ -135,6 +135,9 @@ const STEPS = [
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
+
+const intVal = (v: string) => v === '' ? ('' as any) : parseInt(v, 10);
+const floatVal = (v: string) => v === '' ? ('' as any) : parseFloat(v);
 
 export default function OnboardingView({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState(1)
@@ -308,34 +311,34 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
       await setupSettings({
         hardware: {
-          max_pc_runs_per_day: hardware.maxPcRunsPerDay,
-          max_bags_per_pc_run: hardware.maxBagsPerPcRun,
-          grain_cycle_mins: hardware.grainCycleMins,
-          grain_prep_cool_mins: 1440, // 24h cool — passive, doesn't block PC
-          bulk_cycle_mins: hardware.bulkCycleMins,
+          max_pc_runs_per_day: hardware.maxPcRunsPerDay || 1,
+          max_bags_per_pc_run: hardware.maxBagsPerPcRun || 4,
+          grain_cycle_mins: hardware.grainCycleMins || 150,
+          grain_prep_cool_mins: 1440,
+          bulk_cycle_mins: hardware.bulkCycleMins || 150,
           bulk_prep_cool_mins: 1440,
-          microlab_cycle_mins: hardware.microlabCycleMins,
+          microlab_cycle_mins: hardware.microlabCycleMins || 30,
           microlab_prep_cool_mins: 1440,
-          daily_available_mins: hardware.dailyAvailableMins,
-          scheduling_horizon_days: hardware.schedulingHorizonDays,
+          daily_available_mins: hardware.dailyAvailableMins || 480,
+          scheduling_horizon_days: hardware.schedulingHorizonDays || 28,
         } as any,
         recipes: recipes.filter(r => r.name.trim()),
         species: speciesWithIncubating.map(s => ({
           commonName: s.commonName,
           bulkPrepMethod: s.bulkPrepMethod,
           maxGenerations: s.maxGenerations,
-          lcToGen1DaysMin: s.lcToGen1DaysMin,
-          lcToGen1DaysMax: s.lcToGen1DaysMax,
-          gen2ColonizationDaysMin: s.gen2ColonizationDaysMin,
-          gen2ColonizationDaysMax: s.gen2ColonizationDaysMax,
-          bulkColonizationDaysMin: s.bulkColonizationDaysMin,
-          bulkColonizationDaysMax: s.bulkColonizationDaysMax,
-          fruitingDaysMin: s.fruitingDaysMin,
-          fruitingDaysMax: s.fruitingDaysMax,
-          weeklyTargetBlocks: s.weeklyTargetBlocks,
-          fridgeTargetBags: s.fridgeTargetBags,
-          fridgeMinBags: s.fridgeMinBags,
-          startingLcVolumeMl: s.startingLcVolumeMl,
+          lcToGen1DaysMin: Number(s.lcToGen1DaysMin) || 14,
+          lcToGen1DaysMax: Number(s.lcToGen1DaysMax) || 21,
+          gen2ColonizationDaysMin: Number(s.gen2ColonizationDaysMin) || 14,
+          gen2ColonizationDaysMax: Number(s.gen2ColonizationDaysMax) || 21,
+          bulkColonizationDaysMin: Number(s.bulkColonizationDaysMin) || 14,
+          bulkColonizationDaysMax: Number(s.bulkColonizationDaysMax) || 21,
+          fruitingDaysMin: Number(s.fruitingDaysMin) || 7,
+          fruitingDaysMax: Number(s.fruitingDaysMax) || 14,
+          weeklyTargetBlocks: Number(s.weeklyTargetBlocks) || 0,
+          fridgeTargetBags: Number(s.fridgeTargetBags) || 0,
+          fridgeMinBags: Number(s.fridgeMinBags) || 0,
+          startingLcVolumeMl: Number(s.startingLcVolumeMl) || 0,
           sterilizedGrains: s.sterilizedGrains,
           sterilizedSubstrate: s.sterilizedSubstrate,
           incubating: s.incubating,
@@ -406,12 +409,12 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?">
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.maxPcRunsPerDay}
-                        onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: parseInt(e.target.value) || 1 })} />
+                        onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: intVal(e.target.value) })} />
                     </FieldGroup>
                     <FieldGroup label="Max Bags / Run" hint="How many bags fit at once?">
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.maxBagsPerPcRun}
-                        onChange={e => setHardware({ ...hardware, maxBagsPerPcRun: parseInt(e.target.value) || 1 })} />
+                        onChange={e => setHardware({ ...hardware, maxBagsPerPcRun: intVal(e.target.value) })} />
                     </FieldGroup>
                   </div>
 
@@ -423,17 +426,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                       <FieldGroup label="Grain Cycle (minutes)" hint="Time at pressure for grain bags">
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.grainCycleMins}
-                          onChange={e => setHardware({ ...hardware, grainCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
+                          onChange={e => setHardware({ ...hardware, grainCycleMins: intVal(e.target.value) })} />
                       </FieldGroup>
                       <FieldGroup label="Bulk Substrate Cycle (minutes)" hint="Time at pressure for bulk blocks">
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.bulkCycleMins}
-                          onChange={e => setHardware({ ...hardware, bulkCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
+                          onChange={e => setHardware({ ...hardware, bulkCycleMins: intVal(e.target.value) })} />
                       </FieldGroup>
                       <FieldGroup label="Micro-Lab Cycle (minutes)" hint="Time for LC jars, agar plates, etc.">
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.microlabCycleMins}
-                          onChange={e => setHardware({ ...hardware, microlabCycleMins: Math.max(1, parseInt(e.target.value) || 1) })} />
+                          onChange={e => setHardware({ ...hardware, microlabCycleMins: intVal(e.target.value) })} />
                       </FieldGroup>
                     </div>
                   </div>
@@ -445,7 +448,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     <FieldGroup label="Available Lab Time / Day (minutes)" hint="How many minutes a day can you spend in the lab? 480 = 8 hrs">
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.dailyAvailableMins}
-                        onChange={e => setHardware({ ...hardware, dailyAvailableMins: Math.max(1, parseInt(e.target.value) || 1) })} />
+                        onChange={e => setHardware({ ...hardware, dailyAvailableMins: intVal(e.target.value) })} />
                     </FieldGroup>
                   </div>
                 </div>
@@ -532,7 +535,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             <input
                               type="number" className="lab-input w-16 text-sm text-center" placeholder="Amt"
                               value={ing.amount ?? ''}
-                              onChange={e => updateIngredient(rIdx, iIdx, { amount: parseFloat(e.target.value) || undefined })}
+                              onChange={e => updateIngredient(rIdx, iIdx, { amount: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
                             />
                             <select className="lab-input text-sm" value={ing.unit ?? '% by weight'} onChange={e => updateIngredient(rIdx, iIdx, { unit: e.target.value })}>
                               <option value="% by weight">% by weight</option>
@@ -594,7 +597,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   <FieldGroup label="G2G Generations" hint="How many Grain-to-Grain transfers before fruiting? 0 = inoculate directly from LC.">
                     <input type="number" min="0" max="5" className="lab-input w-full"
                       value={sp.maxGenerations}
-                      onChange={e => setSp({ maxGenerations: parseInt(e.target.value) || 0 })} />
+                      onChange={e => setSp({ maxGenerations: intVal(e.target.value) })} />
                     <div className="flex gap-1 mt-1.5 overflow-x-auto hide-scrollbar">
                       {[0, 1, 2, 3].map(n => (
                         <button
@@ -610,7 +613,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   <FieldGroup label="Priority Level" hint="1 is Highest Priority. High priority species are scheduled first if PC space is limited.">
                     <input type="number" min="1" max="10" className="lab-input w-full"
                       value={sp.priorityLevel ?? 3}
-                      onChange={e => setSp({ priorityLevel: parseInt(e.target.value) || 3 })} />
+                      onChange={e => setSp({ priorityLevel: intVal(e.target.value) })} />
                   </FieldGroup>
 
                   <FieldGroup label="Bulk Prep Method">
@@ -624,7 +627,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
                   {recipes.length > 0 && (
                     <FieldGroup label="Default Substrate Recipe" hint="Which recipe do you use for this species' bulk blocks?">
-                      <select className="lab-input w-full" value={sp.defaultRecipeIdx ?? ''} onChange={e => setSp({ defaultRecipeIdx: e.target.value !== '' ? parseInt(e.target.value) : undefined })}>
+                      <select className="lab-input w-full" value={sp.defaultRecipeIdx ?? ''} onChange={e => setSp({ defaultRecipeIdx: e.target.value !== '' ? intVal(e.target.value) : undefined })}>
                         <option value="">None (choose per batch)</option>
                         {recipes.map((r, i) => (
                           <option key={i} value={i}>{r.name}</option>
@@ -677,7 +680,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   <DayRange label="LC → Gen 1 Grain Colonization"
                     min={sp.lcToGen1DaysMin} max={sp.lcToGen1DaysMax}
                     onMin={v => setSp({ lcToGen1DaysMin: v })} onMax={v => setSp({ lcToGen1DaysMax: v })} />
-                  {sp.maxGenerations > 1 && (
+                  {sp.maxGenerations > 0 && (
                     <DayRange label="Gen 2 Grain Colonization (G2G)"
                       min={sp.gen2ColonizationDaysMin} max={sp.gen2ColonizationDaysMax}
                       onMin={v => setSp({ gen2ColonizationDaysMin: v })} onMax={v => setSp({ gen2ColonizationDaysMax: v })} />
@@ -726,7 +729,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             value={s.weeklyTargetBlocks}
                             onChange={e => {
                               const newList = [...speciesList];
-                              newList[idx].weeklyTargetBlocks = parseInt(e.target.value) || 0;
+                              newList[idx].weeklyTargetBlocks = intVal(e.target.value);
                               setSpeciesList(newList);
                             }} />
                         </FieldGroup>
@@ -735,7 +738,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             value={s.fridgeTargetBags}
                             onChange={e => {
                               const newList = [...speciesList];
-                              newList[idx].fridgeTargetBags = parseInt(e.target.value) || 0;
+                              newList[idx].fridgeTargetBags = intVal(e.target.value);
                               setSpeciesList(newList);
                             }} />
                         </FieldGroup>
@@ -744,7 +747,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             value={s.fridgeMinBags}
                             onChange={e => {
                               const newList = [...speciesList];
-                              newList[idx].fridgeMinBags = parseInt(e.target.value) || 0;
+                              newList[idx].fridgeMinBags = intVal(e.target.value);
                               setSpeciesList(newList);
                             }} />
                         </FieldGroup>
@@ -760,7 +763,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     value=""
                     onChange={e => {
                       if (!e.target.value) return;
-                      const idx = parseInt(e.target.value);
+                      const idx = intVal(e.target.value);
                       const newList = [...speciesList];
                       newList[idx].weeklyTargetBlocks = 5;
                       newList[idx].fridgeTargetBags = 8;
@@ -815,7 +818,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                               value={sp.startingLcVolumeMl}
                               onChange={e => {
                                 const newList = [...speciesList];
-                                newList[idx].startingLcVolumeMl = parseInt(e.target.value) || 0;
+                                newList[idx].startingLcVolumeMl = intVal(e.target.value);
                                 setSpeciesList(newList);
                               }} />
                           </FieldGroup>
@@ -861,7 +864,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                                   value={item.weightLbs}
                                   onChange={e => {
                                     const newList = [...speciesList];
-                                    newList[idx].sterilizedGrains[itemIdx].weightLbs = parseFloat(e.target.value) || 0;
+                                    newList[idx].sterilizedGrains[itemIdx].weightLbs = floatVal(e.target.value);
                                     setSpeciesList(newList);
                                   }} />
                                 <span className="text-[12px] text-surface-muted">lbs</span>
@@ -917,7 +920,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                                   value={item.weightLbs}
                                   onChange={e => {
                                     const newList = [...speciesList];
-                                    newList[idx].sterilizedSubstrate[itemIdx].weightLbs = parseFloat(e.target.value) || 0;
+                                    newList[idx].sterilizedSubstrate[itemIdx].weightLbs = floatVal(e.target.value);
                                     setSpeciesList(newList);
                                   }} />
                                 <span className="text-[12px] text-surface-muted">lbs</span>
@@ -944,7 +947,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     value=""
                     onChange={e => {
                       if (!e.target.value) return;
-                      const idx = parseInt(e.target.value);
+                      const idx = intVal(e.target.value);
                       const newList = [...speciesList];
                       newList[idx].hasInventoryLogged = true;
                       setSpeciesList(newList);
@@ -1007,7 +1010,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                           <select
                             className="lab-input w-full"
                             value={item.speciesIdx}
-                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, speciesIdx: parseInt(e.target.value) } : it))}
+                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, speciesIdx: intVal(e.target.value) } : it))}
                           >
                             {speciesList.map((s, sIdx) => (
                               <option key={sIdx} value={sIdx}>
@@ -1038,7 +1041,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                             <p className="text-[11px] text-surface-muted mb-1">Quantity</p>
                             <input type="number" min="1" className="lab-input w-full text-sm text-center"
                               value={item.quantity}
-                              onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, quantity: parseInt(e.target.value) || 1 } : it))} />
+                              onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, quantity: intVal(e.target.value) } : it))} />
                           </div>
                         </div>
 
@@ -1051,7 +1054,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                           <input type="range" min="0" max="100"
                             className="w-full accent-bio-green"
                             value={item.colonizationPct}
-                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, colonizationPct: parseInt(e.target.value) } : it))} />
+                            onChange={e => setIncubating(i => i.map((it, j) => j === idx ? { ...it, colonizationPct: intVal(e.target.value) } : it))} />
                           <div className="flex justify-between text-[10px] text-surface-muted">
                             <span>Just started</span><span>Almost done</span>
                           </div>
@@ -1101,7 +1104,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
           ) : (
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting || speciesList.every(s => !s.commonName.trim())}
+              disabled={isSubmitting || speciesList.some(s => !s.commonName.trim())}
               className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {isSubmitting ? (
