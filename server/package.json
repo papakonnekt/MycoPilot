@@ -1,6 +1,6 @@
 {
   "name": "myco-scheduler-server",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Myco Scheduler backend",
   "main": "dist/index.js",
   "scripts": {

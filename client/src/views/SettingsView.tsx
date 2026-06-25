@@ -633,6 +633,15 @@ function HardwareSection({
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 min-w-0">
           <NumberField
+            label="Number of PCs"
+            hint="How many pressure cookers?"
+            value={draft.pc_unit_count ?? 1}
+            onChange={(v) => set('pc_unit_count', v)}
+            min={1}
+            max={20}
+            step={1}
+          />
+          <NumberField
             label="Max PC runs / day"
             hint="Hard daily cap"
             value={draft.max_pc_runs_per_day}

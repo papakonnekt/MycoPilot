@@ -147,6 +147,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
   // ── Step 1: Hardware ────────────────────────────────────────
   const [hardware, setHardware] = useState({
+    pc_unit_count: 1,
     maxPcRunsPerDay: 1,
     maxBagsPerPcRun: 4,
     grainCycleMins: 150,
@@ -311,6 +312,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
       await setupSettings({
         hardware: {
+          pc_unit_count: hardware.pc_unit_count || 1,
           max_pc_runs_per_day: hardware.maxPcRunsPerDay || 1,
           max_bags_per_pc_run: hardware.maxBagsPerPcRun || 4,
           grain_cycle_mins: hardware.grainCycleMins || 150,
@@ -406,15 +408,20 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
                 <div className="lab-card p-5 space-y-5">
                   <div className="grid grid-cols-2 gap-4">
-                    <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?">
+                    <FieldGroup label="Number of PCs" hint="How many pressure cookers?">
                       <input type="number" min="1" className="lab-input w-full"
-                        value={hardware.maxPcRunsPerDay}
-                        onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: intVal(e.target.value) })} />
+                        value={hardware.pc_unit_count}
+                        onChange={e => setHardware({ ...hardware, pc_unit_count: intVal(e.target.value) })} />
                     </FieldGroup>
                     <FieldGroup label="Max Bags / Run" hint="How many bags fit at once?">
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.maxBagsPerPcRun}
                         onChange={e => setHardware({ ...hardware, maxBagsPerPcRun: intVal(e.target.value) })} />
+                    </FieldGroup>
+                    <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?">
+                      <input type="number" min="1" className="lab-input w-full"
+                        value={hardware.maxPcRunsPerDay}
+                        onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: intVal(e.target.value) })} />
                     </FieldGroup>
                   </div>
 
@@ -594,17 +601,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                       onChange={e => setSp({ commonName: e.target.value })} />
                   </FieldGroup>
 
-                  <FieldGroup label="G2G Generations" hint="How many Grain-to-Grain transfers before fruiting? 0 = inoculate directly from LC.">
-                    <input type="number" min="0" max="5" className="lab-input w-full"
+                  <FieldGroup label="G2G Generations" hint="How many Grain-to-Grain transfers before fruiting? 1 = inoculate bulk directly from Gen 1 Grain (LC Only).">
+                    <input type="number" min="1" max="5" className="lab-input w-full"
                       value={sp.maxGenerations}
                       onChange={e => setSp({ maxGenerations: intVal(e.target.value) })} />
                     <div className="flex gap-1 mt-1.5 overflow-x-auto hide-scrollbar">
-                      {[0, 1, 2, 3].map(n => (
+                      {[1, 2, 3, 4].map(n => (
                         <button
                           key={n} onClick={() => setSp({ maxGenerations: n })}
                           className={`shrink-0 text-[12px] px-3 py-1 rounded-full transition-colors ${sp.maxGenerations === n ? 'bg-bio-green text-surface-900 font-bold' : 'bg-surface-800 text-surface-muted'}`}
                         >
-                          {n === 0 ? 'LC Only' : `${n}x G2G`}
+                          {n === 1 ? 'LC Only' : `${n - 1}x G2G`}
                         </button>
                       ))}
                     </div>
@@ -680,7 +687,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                   <DayRange label="LC → Gen 1 Grain Colonization"
                     min={sp.lcToGen1DaysMin} max={sp.lcToGen1DaysMax}
                     onMin={v => setSp({ lcToGen1DaysMin: v })} onMax={v => setSp({ lcToGen1DaysMax: v })} />
-                  {sp.maxGenerations > 0 && (
+                  {sp.maxGenerations > 1 && (
                     <DayRange label="Gen 2 Grain Colonization (G2G)"
                       min={sp.gen2ColonizationDaysMin} max={sp.gen2ColonizationDaysMax}
                       onMin={v => setSp({ gen2ColonizationDaysMin: v })} onMax={v => setSp({ gen2ColonizationDaysMax: v })} />

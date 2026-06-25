@@ -59,12 +59,12 @@ router.post('/setup', (req: Request, res: Response) => {
         daily_available_mins, scheduling_horizon_days,
         pc_unit_count, lab_days, default_bag_weight_lbs
       ) VALUES (
-        @maxPcRunsPerDay, @maxBagsPerPcRun,
-        @grainCycleMins, @grainPrepCoolMins,
-        @bulkCycleMins, @bulkPrepCoolMins,
-        @microlabCycleMins, @microlabPrepCoolMins,
-        @dailyAvailableMins, @schedulingHorizonDays,
-        @pcUnitCount, @labDaysStr, @defaultBagWeightLbs
+        @max_pc_runs_per_day, @max_bags_per_pc_run,
+        @grain_cycle_mins, @grain_prep_cool_mins,
+        @bulk_cycle_mins, @bulk_prep_cool_mins,
+        @microlab_cycle_mins, @microlab_prep_cool_mins,
+        @daily_available_mins, @scheduling_horizon_days,
+        @pc_unit_count, @lab_days, @default_bag_weight_lbs
       )
     `);
 
@@ -72,9 +72,9 @@ router.post('/setup', (req: Request, res: Response) => {
       // ── Hardware ─────────────────────────────────────────────
       const hwParams = {
         ...s.hardware,
-        pcUnitCount: s.hardware.pcUnitCount ?? 1,
-        labDaysStr: JSON.stringify(s.hardware.labDays ?? [1, 2, 3, 4, 5, 6]),
-        defaultBagWeightLbs: s.hardware.defaultBagWeightLbs ?? 5.0,
+        pc_unit_count: s.hardware.pc_unit_count ?? s.hardware.pcUnitCount ?? 1,
+        lab_days: JSON.stringify(s.hardware.labDays ?? [1, 2, 3, 4, 5, 6]),
+        default_bag_weight_lbs: s.hardware.defaultBagWeightLbs ?? 5.0,
       };
       insertHw.run(hwParams);
 
