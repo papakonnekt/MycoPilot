@@ -103,7 +103,7 @@ router.post('/setup', (req: Request, res: Response) => {
       // Prepare species statements
       const insertSpecies = db.prepare(`
         INSERT INTO species (common_name, substrate_type, bulk_prep_method, lc_volume_ml_available, default_recipe_id)
-        VALUES (@commonName, 'CUSTOM', @bulkPrepMethod, @lcVolumeMl, @defaultRecipeId)
+        VALUES (@commonName, 'MIXED', @bulkPrepMethod, @lcVolumeMl, @defaultRecipeId)
       `);
       
       const insertProfile = db.prepare(`
