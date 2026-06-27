@@ -78,6 +78,7 @@ interface HardwareDraft {
   daily_available_mins: number
   scheduling_horizon_days: number
   default_bag_weight_lbs: number
+  pc_unit_count: number
 }
 
 interface SpeciesDraft {
@@ -129,6 +130,7 @@ function toHardwareDraft(row: HardwareSettingsRow): HardwareDraft {
     daily_available_mins: row.daily_available_mins,
     scheduling_horizon_days: row.scheduling_horizon_days,
     default_bag_weight_lbs: row.default_bag_weight_lbs ?? 5,
+    pc_unit_count: row.pc_unit_count ?? 1,
   }
 }
 

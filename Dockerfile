@@ -44,6 +44,7 @@ COPY --from=server-builder /app/server/dist ./server/dist
 COPY --from=server-builder /app/server/node_modules ./server/node_modules
 COPY --from=server-builder /app/server/package.json ./server/package.json
 COPY --from=server-builder /app/server/src/db/schema.sql ./server/dist/server/src/db/
+COPY --from=server-builder /app/server/src/db/migrations/ ./server/dist/server/src/db/migrations/
 # Copy built frontend assets to be served by Express
 COPY --from=client-builder /app/client/dist ./server/public
 

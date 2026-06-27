@@ -75,6 +75,7 @@ router.post('/setup', (req: Request, res: Response) => {
         pc_unit_count: s.hardware.pc_unit_count ?? s.hardware.pcUnitCount ?? 1,
         lab_days: JSON.stringify(s.hardware.labDays ?? [1, 2, 3, 4, 5, 6]),
         default_bag_weight_lbs: s.hardware.defaultBagWeightLbs ?? 5.0,
+        homogeneous_by_bag_type: s.hardware.homogeneous_by_bag_type ?? 1,
       };
       insertHw.run(hwParams);
 
@@ -83,7 +84,7 @@ router.post('/setup', (req: Request, res: Response) => {
         INSERT OR IGNORE INTO substrate_recipe (name, notes) VALUES (?, ?)
       `);
       const insertIngredient = db.prepare(`
-        INSERT INTO recipe_ingredient (recipe_id, ingredient, amount, unit)
+        INSERT INTO recipe_ingredient (recipe_id, ingredient, percentage, unit)
         VALUES (?, ?, ?, ?)
       `);
 
@@ -225,6 +226,7 @@ router.post('/setup', (req: Request, res: Response) => {
 
     res.json({ success: true, message: 'Setup complete.' });
   } catch (err) {
+    console.error("SETUP ERROR:", err);
     res.status(500).json({ success: false, error: String(err) });
   }
 });

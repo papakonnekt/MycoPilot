@@ -465,24 +465,32 @@ router.put('/:id/advance', (req: Request, res: Response) => {
     const stage = batch.stage as string;
     const status = batch.status as string;
 
+    const profile = db.prepare(`
+      SELECT max_generations, fruiting_days_max FROM species_profile
+      WHERE species_id = ? AND effective_to IS NULL
+    `).get(batch.species_id) as any;
+    const maxGen = profile?.max_generations || 1;
+
     let nextStage = stage;
     let nextStatus = status;
     let description = '';
 
-    if (stage === 'GEN1_GRAIN' && status === 'INCUBATING') {
-      nextStatus = 'COLONIZED';
-      description = 'Gen 1 Grain marked as Colonized';
-    } else if (stage === 'GEN1_GRAIN' && status === 'COLONIZED') {
-      nextStage = 'GEN2_GRAIN';
-      nextStatus = 'INCUBATING';
-      description = 'Gen 1 → Gen 2 Grain (G2G Transfer)';
-    } else if (stage === 'GEN2_GRAIN' && status === 'INCUBATING') {
-      nextStatus = 'COLONIZED';
-      description = 'Gen 2 Grain marked as Colonized';
-    } else if (stage === 'GEN2_GRAIN' && status === 'COLONIZED') {
-      nextStage = 'FRIDGE';
-      nextStatus = 'IN_FRIDGE';
-      description = 'Gen 2 Grain moved to Fridge Buffer';
+    if (stage.startsWith('GEN') && stage.endsWith('_GRAIN')) {
+      const currentGen = parseInt(stage.replace('GEN', '').replace('_GRAIN', ''), 10);
+      if (status === 'INCUBATING') {
+        nextStatus = 'COLONIZED';
+        description = `Gen ${currentGen} Grain marked as Colonized`;
+      } else if (status === 'COLONIZED') {
+        if (currentGen < maxGen) {
+          nextStage = `GEN${currentGen + 1}_GRAIN`;
+          nextStatus = 'INCUBATING';
+          description = `Gen ${currentGen} → Gen ${currentGen + 1} Grain (G2G Transfer)`;
+        } else {
+          nextStage = 'FRIDGE';
+          nextStatus = 'IN_FRIDGE';
+          description = `Gen ${currentGen} Grain moved to Fridge Buffer`;
+        }
+      }
     } else if (stage === 'FRIDGE' || status === 'IN_FRIDGE') {
       nextStage = 'BULK_BLOCK';
       nextStatus = 'INCUBATING';
@@ -513,10 +521,6 @@ router.put('/:id/advance', (req: Request, res: Response) => {
 
     if (nextStage === 'FRUITING' && stage !== 'FRUITING') {
       updates.fruiting_start = now;
-      const profile = db.prepare(`
-        SELECT fruiting_days_max FROM species_profile
-        WHERE species_id = ? AND effective_to IS NULL
-      `).get(batch.species_id) as any;
       if (profile) {
         const targetDate = new Date(Date.now() + (profile.fruiting_days_max ?? 14) * 86400000);
         updates.fruiting_target_end = targetDate.toISOString();

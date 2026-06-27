@@ -1191,7 +1191,13 @@ function NewBatchModal({
               required
             >
               <option value="GEN1_GRAIN">Gen 1 Grain</option>
-              <option value="GEN2_GRAIN">Gen 2 Grain</option>
+              {speciesList.find(s => s.id === speciesId)?.max_generations ? (
+                Array.from({ length: Math.max(0, (speciesList.find(s => s.id === speciesId)!.max_generations || 1) - 1) }).map((_, gIdx) => (
+                  <option key={gIdx} value={`GEN${gIdx + 2}_GRAIN`}>Gen {gIdx + 2} Grain</option>
+                ))
+              ) : (
+                <option value="GEN2_GRAIN">Gen 2 Grain</option>
+              )}
               <option value="BULK_BLOCK">Bulk Block</option>
               <option value="FRUITING">Fruiting</option>
             </select>
@@ -1251,13 +1257,24 @@ function AdvanceBatchModal({
   
   const currentStage = humanizeStage(row.stage)
   
-  const stageMap: Record<string, string> = {
-    'GEN1_GRAIN': 'GEN2_GRAIN',
-    'GEN2_GRAIN': 'BULK_BLOCK',
-    'BULK_BLOCK': 'FRUITING',
-    'FRUITING': 'HARVESTED' // or spent
+  // Need to find max_generations from species list if it exists.
+  // Wait, AdvanceBatchModal doesn't have speciesList! We can infer from the row if possible or fetch it.
+  // Wait, let's just use a dynamic map that supports GENX_GRAIN.
+  let nextStageId = 'SPENT'
+  if (row.stage === 'GEN1_GRAIN') {
+    // We don't have max_generations easily accessible here without passing speciesList.
+    // If the user chooses Advance, we assume they want the NEXT logical step, but how do we skip to BULK_BLOCK if LC only?
+    // The easiest way is to let the user select the next stage if it's ambiguous.
+    nextStageId = 'GEN2_GRAIN'
+  } else if (row.stage?.startsWith('GEN') && row.stage?.endsWith('_GRAIN')) {
+    const gen = parseInt(row.stage.replace('GEN', '').replace('_GRAIN', ''), 10)
+    nextStageId = `GEN${gen + 1}_GRAIN`
+  } else if (row.stage === 'BULK_BLOCK') {
+    nextStageId = 'FRUITING'
+  } else if (row.stage === 'FRUITING') {
+    nextStageId = 'HARVESTED'
   }
-  const nextStageId = stageMap[row.stage || ''] || 'SPENT'
+
   const nextStageName = humanizeStage(nextStageId)
 
   const handleAdvance = async () => {
