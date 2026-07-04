@@ -70,7 +70,7 @@ export function migrate(): void {
   const migrationsDir = path.resolve(__dirname, 'migrations');
   if (fs.existsSync(migrationsDir)) {
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
-    
+
     const getApplied = database.prepare('SELECT name FROM _migrations').pluck().all() as string[];
     const appliedSet = new Set(getApplied);
 
@@ -78,7 +78,7 @@ export function migrate(): void {
       if (!appliedSet.has(file)) {
         console.log(`Applying migration: ${file}`);
         const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
-        
+
         database.transaction(() => {
           database.exec(sql);
           database.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file);
@@ -86,6 +86,34 @@ export function migrate(): void {
       }
     }
   }
+
+  // ── Apply seeds.sql (idempotent baseline row for hardware_settings) ──
+  // Sprint 2 Step 1: the seeds file is now wired into the runtime so the
+  // app boots with a baseline physical constraint (1 PC run/day). The seed
+  // is gated on the absence of an active hardware_settings row, so re-runs
+  // are safe and will never clobber operator edits.
+  const seedsPath = path.resolve(__dirname, 'seeds.sql');
+if (fs.existsSync(seedsPath)) {
+  const hwCount = (database
+    .prepare('SELECT COUNT(*) AS n FROM hardware_settings WHERE is_active = 1')
+    .get() as { n: number }).n;
+  if (hwCount === 0) {
+    const seeds = fs.readFileSync(seedsPath, 'utf8');
+    try {
+      database.transaction(() => {
+        database.exec(seeds);
+      })();
+      console.log('🌱 Seeds applied (default hardware_settings row inserted).');
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (!msg.includes('already exists') && !msg.includes('UNIQUE constraint failed')) {
+        throw err;
+      }
+    }
+  } else {
+    console.log('🌱 Seeds skipped (hardware_settings already configured).');
+  }
+}
 
   console.log('✅ Database schema migrated.');
 }

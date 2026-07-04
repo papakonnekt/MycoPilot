@@ -910,10 +910,18 @@ function CalendarEmpty({
             </div>
           </div>
           <div className="mt-5 flex flex-wrap items-center gap-3">
+            <a
+              href="/settings"
+              className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+              aria-label="Go to Settings to add a species"
+            >
+              <CalendarBlank size={16} weight="regular" />
+              <span>Go to Settings</span>
+            </a>
             <button
               type="button"
               onClick={onReload}
-              className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+              className="min-h-[44px] group inline-flex items-center gap-2 btn-ghost"
             >
               <ArrowClockwise
                 size={16}
