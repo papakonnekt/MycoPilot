@@ -14,6 +14,7 @@ import {
   SchedulerWarning,
   Species,
   SpeciesProfile,
+  TargetInterval,
   Task,
   TaskType,
   WeeklyTarget,
@@ -21,6 +22,70 @@ import {
   RawMaterial,
   MaterialUsageRecipe,
 } from '../../../shared/types';
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+// PHASE 5 CONSTANTS & GUARDS
+// ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Number of days between active chain generations per cadence.
+ *   WEEKLY  -> every 7 days (legacy default)
+ *   MONTHLY -> every 28 days = the "Monthly Rotator" slot.
+ */
+const INTERVAL_DAYS: Record<TargetInterval, number> = {
+  WEEKLY:  7,
+  MONTHLY: 28,
+};
+
+/** Normalize an arbitrary interval value to a known enum. Missing / unknown values fall back to WEEKLY. */
+function normalizeInterval(raw: TargetInterval | undefined | null): TargetInterval {
+  if (raw === 'MONTHLY') return 'MONTHLY';
+  return 'WEEKLY';
+}
+
+/** Coerce an optional / NaN number to a finite default. Used to guard calculations when a column is missing. */
+function safeNumber(n: number | undefined | null, fallback = 0): number {
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Phase 5 Step 2: dynamic horizon.
+ *
+ * Compute the scheduling horizon (in days) from the slowest active species
+ * biological timeline. Returns the MAX of:
+ *   lcToGen1DaysMax + gen2ColonizationDaysMax + bulkColonizationDaysMax + fruitingDaysMax
+ * across every active species that has a profile. Missing fields collapse to 0
+ * via safeNumber. A FALLBACK is returned if there are no active species or all
+ * timelines are zero, so the engine never sees horizon = 0.
+ */
+export const HORIZON_FALLBACK_DAYS = 28;
+
+export function computeHorizonDays(
+  speciesMap: Map<number, Species>,
+  profileMap: Map<number, SpeciesProfile>,
+  fallback: number = HORIZON_FALLBACK_DAYS
+): number {
+  let maxDays = 0;
+  for (const [speciesId, species] of speciesMap.entries()) {
+    // Defensive: route filters on is_active=1, but if the engine is ever called
+    // from a context that passes inactive species we still skip them here.
+    if (!species || species.isActive === false) continue;
+
+    const profile = profileMap.get(speciesId);
+    if (!profile) continue;
+
+    const total =
+      safeNumber(profile.lcToGen1DaysMax, 0) +
+      safeNumber(profile.gen2ColonizationDaysMax, 0) +
+      safeNumber(profile.bulkColonizationDaysMax, 0) +
+      safeNumber(profile.fruitingDaysMax, 0);
+
+    if (total > maxDays) maxDays = total;
+  }
+  // Never let horizon collapse to 0 - would make the calendar empty and the
+  // horizon loop unsafe. Use the fallback.
+  return maxDays > 0 ? maxDays : fallback;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // UTILITIES
@@ -36,7 +101,7 @@ function shiftIfClosed(date: Date, hw: HardwareSettings, direction: 1 | -1 = 1):
   const d = new Date(date);
   const labDays = hw.labDays || [0, 1, 2, 3, 4, 5, 6];
   if (labDays.length === 0) return d; // Prevent infinite loop if all days are closed
-  
+
   let iterations = 0;
   while (!labDays.includes(d.getDay()) && iterations < 7) {
     d.setDate(d.getDate() + direction);
@@ -132,17 +197,43 @@ export class SchedulerEngine {
       inventoryDeltas: [],
       lcDeltas: {},
       pcRunDrafts: [],
+      // Phase 5 Step 2: dynamic horizon, derived from slowest active species.
+      // See computeHorizonDays() above for the math. Filled in below.
+      horizonDays: HORIZON_FALLBACK_DAYS,
     };
 
     // Reset per-run sequence counters
     this.seqCounters.clear();
 
-    // Build mutable 28-day calendar
-    const calendar = this.buildCalendar(params.today, params.hardware, params.existingTasks);
+    // Phase 5 Step 2: derive horizon from slowest active species' biological
+    // timeline, then override the hardware field so all downstream helpers
+    // (buildCalendar, isInHorizon) automatically honor the new bound.
+    const dynamicHorizon = computeHorizonDays(
+      params.speciesMap ?? new Map(),
+      params.profileMap ?? new Map(),
+      safeNumber(params.hardware?.schedulingHorizonDays, HORIZON_FALLBACK_DAYS)
+    );
+    params.hardware.schedulingHorizonDays = dynamicHorizon;
+    output.horizonDays = dynamicHorizon;
+
+    // Build mutable calendar (now sized to the dynamic horizon)
+    const calendar = this.buildCalendar(params.today, params.hardware, params.existingTasks ?? []);
+
+    // ------ Empty-state guard: 0 weekly targets -> nothing to do --------------------------
+    const targets = Array.isArray(params.weeklyTargets) ? params.weeklyTargets : [];
+    if (targets.length === 0) {
+      // Even with no targets we still tick active batches (they may need flushes / fridge expiry
+      // warnings) so the UI keeps its consistency contract.
+      const safeBatches = Array.isArray(params.activeBatches) ? params.activeBatches : [];
+      this.tickActiveBatches(safeBatches, params.today, calendar, params.hardware, output);
+      this.detectViolations(calendar, params.hardware, output);
+      output.tasks = this.flattenCalendar(calendar);
+      return output;
+    }
 
     // ------ STEP 1: Demand calculation ------------------------------------------------------------------------------------
-    const demands = params.weeklyTargets
-      .filter(t => t.isActive)
+    const demands = targets
+      .filter(t => t && t.isActive)
       .map(target => {
         const profile = params.profileMap.get(target.speciesId);
         const species = params.speciesMap.get(target.speciesId);
@@ -152,36 +243,47 @@ export class SchedulerEngine {
       .filter((d): d is DemandResult => d !== null);
 
     // ------ STEP 2: Apply fridge reduction ---------------------------------------------------------------------
-    const adjustedDemands = demands.map(d =>
-      this.applyFridgeReduction(d, params.fridgeSummary, params.fridgeThresh)
-    ).sort((a, b) => (a.profile.priorityLevel || 3) - (b.profile.priorityLevel || 3));
+    const adjustedDemands = (demands.length > 0 ? demands : [])
+      .map(d => this.applyFridgeReduction(d, params.fridgeSummary, params.fridgeThresh))
+      .sort((a, b) => safeNumber(a.profile?.priorityLevel, 3) - safeNumber(b.profile?.priorityLevel, 3));
 
     // ------ STEP 3: Generate production chain tasks ---------------------------------------------
-    const horizonEnd = addDays(params.today, params.hardware.schedulingHorizonDays);
+    // Phase 5 Step 2: horizon is now dynamic - params.hardware.schedulingHorizonDays
+    // was overwritten at the top of run() with computeHorizonDays().
+    const horizonEnd = addDays(params.today, safeNumber(params.hardware?.schedulingHorizonDays, HORIZON_FALLBACK_DAYS));
 
     for (const demand of adjustedDemands) {
-      const species = params.speciesMap.get(demand.speciesId)!;
-      const speciesCode = this.getSpeciesCode(species.commonName);
-      
+      // Empty-species guard: species may have been deleted since the target row was created.
+      const species = params.speciesMap.get(demand.speciesId);
+      if (!species) continue;
+      const speciesCode = this.getSpeciesCode(species?.commonName ?? '');
+
+      const interval: TargetInterval = normalizeInterval(demand.targetInterval);
+      const stepDays = INTERVAL_DAYS[interval];
+
       let anchor = new Date(demand.weekStartDate + 'T12:00:00');
       if (isNaN(anchor.getTime())) {
         anchor = new Date(params.today);
       }
 
       // Fast-forward anchor to the start of the relevant window (e.g. today or slightly before)
-      // We want to generate chains for any week that might have tasks falling within the horizon.
-      // To be safe, we start from today - 60 days (to catch tasks that might land in the horizon)
-      // and go up to horizonEnd.
+      // We want to generate chains for any week/cycle that might have tasks falling within the
+      // horizon. To be safe, start from today - 90 days and go up to horizonEnd.
       let currentAnchor = new Date(anchor);
       const safePast = addDays(params.today, -90);
       while (currentAnchor < safePast) {
-        currentAnchor = addDays(currentAnchor, 7);
+        currentAnchor = addDays(currentAnchor, stepDays);
       }
 
       while (currentAnchor <= horizonEnd) {
-        const weekDemand = { ...demand, weekStartDate: currentAnchor.toISOString().split('T')[0] };
+        const weekDemand = {
+          ...demand,
+          weekStartDate: currentAnchor.toISOString().split('T')[0],
+          targetInterval: interval,
+        };
         this.generateProductionChain(weekDemand, species, speciesCode, params.today, calendar, params.hardware, output);
-        currentAnchor = addDays(currentAnchor, 7);
+        // Phase 5: advance by interval days, not always 7. WEEKLY stays 7, MONTHLY becomes 28.
+        currentAnchor = addDays(currentAnchor, stepDays);
       }
     }
 
@@ -189,7 +291,7 @@ export class SchedulerEngine {
     this.packPCRuns(calendar, params.hardware, output);
 
     // ------ STEP 5: Tick active batches (colonization timers) ---------------
-    this.tickActiveBatches(params.activeBatches, params.today, calendar, params.hardware, output);
+    this.tickActiveBatches(params.activeBatches ?? [], params.today, calendar, params.hardware, output);
 
     // ------ STEP 6: LC depletion checks ------------------------------------------------------------------------------
     this.reconcileLC(output.tasks, params.speciesMap, output, calendar, params.today, params.hardware);
@@ -213,32 +315,34 @@ export class SchedulerEngine {
     species: Species,
     profile: SpeciesProfile
   ): DemandResult {
-    const T = target.targetBlocksPerWk;
-    const maxGen = profile.maxGenerations || 2;
+    // Defensive numeric normalization: any missing field becomes 0 instead of NaN/undefined.
+    const T = safeNumber(target?.targetBlocksPerWk, 0);
+    const maxGen = safeNumber(profile?.maxGenerations, 2);
 
     const bulkBlocksNeeded = T;
-    
+
     // Calculate backwards from final generation
     const genBagsNeeded = new Array(maxGen).fill(0);
     genBagsNeeded[maxGen - 1] = T; // Highest gen maps 1:1 with bulk blocks
 
+    const ratio = safeNumber(profile?.gen1ToGen2Ratio, 10) || 1;
     for (let i = maxGen - 2; i >= 0; i--) {
       // ratio is gen1_to_gen2_ratio (implies genN to genN+1 ratio)
-      genBagsNeeded[i] = Math.ceil(genBagsNeeded[i + 1] / profile.gen1ToGen2Ratio);
+      genBagsNeeded[i] = Math.ceil(safeNumber(genBagsNeeded[i + 1], 0) / ratio);
     }
 
-    const totalGrainBagsPerWeek = genBagsNeeded.reduce((sum, n) => sum + n, 0);
+    const totalGrainBagsPerWeek = genBagsNeeded.reduce((sum, n) => sum + safeNumber(n, 0), 0);
 
     // Bulk PC demand: only HWFP species use PC for bulk
     const totalBulkBagsPerWeek =
-      species.bulkPrepMethod === 'PC' ? bulkBlocksNeeded : 0;
+      species?.bulkPrepMethod === 'PC' ? bulkBlocksNeeded : 0;
 
     // LC consumption (Gen 1)
-    const lcMlPerWeek = genBagsNeeded[0] * species.lcInjectionVolumeMl;
+    const lcMlPerWeek = safeNumber(genBagsNeeded[0], 0) * safeNumber(species?.lcInjectionVolumeMl, 0);
 
     return {
-      speciesId: target.speciesId,
-      speciesName: species.commonName,
+      speciesId: target?.speciesId,
+      speciesName: species?.commonName ?? '',
       weeklyBlocks: T,
       bulkBlocksNeeded,
       genBagsNeeded,
@@ -246,7 +350,9 @@ export class SchedulerEngine {
       totalBulkBagsPerWeek,
       lcMlPerWeek,
       profile,
-      weekStartDate: target.weekStartDate,
+      weekStartDate: target?.weekStartDate ?? '',
+      // Phase 5: carry the cadence flag forward so the weekly-loop in `run()` can branch.
+      targetInterval: normalizeInterval(target?.targetInterval),
     };
   }
 
@@ -257,15 +363,15 @@ export class SchedulerEngine {
     fridgeSummary: Map<number, FridgeSummaryRow>,
     fridgeThresh: Map<number, FridgeThreshold>
   ): AdjustedDemand {
-    const fridgeRow = fridgeSummary.get(demand.speciesId);
-    const threshold = fridgeThresh.get(demand.speciesId);
+    const fridgeRow = fridgeSummary?.get(demand.speciesId);
+    const threshold = fridgeThresh?.get(demand.speciesId);
 
-    const available  = fridgeRow?.netAvailable ?? 0;
-    const minThresh  = threshold?.minGen2Bags ?? 2;
-    const restockTo  = threshold?.targetGen2Bags ?? 5;
+    const available  = safeNumber(fridgeRow?.netAvailable, 0);
+    const minThresh  = safeNumber(threshold?.minGen2Bags, 2);
+    const restockTo  = safeNumber(threshold?.targetGen2Bags, 5);
 
-    const maxGen = demand.profile.maxGenerations || 2;
-    const weeklyNeed     = demand.genBagsNeeded[maxGen - 1];
+    const maxGen = safeNumber(demand.profile?.maxGenerations, 2);
+    const weeklyNeed     = safeNumber(demand.genBagsNeeded?.[maxGen - 1], 0);
     const pullFromFridge = Math.min(available, weeklyNeed);
     const produceNew     = weeklyNeed - pullFromFridge;
 
@@ -275,11 +381,12 @@ export class SchedulerEngine {
     const restockQty    = needsRestock ? Math.max(0, restockTo - postPullLevel) : 0;
 
     // New Gen bags needed for new production + fridge restock
-    const genBagsAdjusted = [...demand.genBagsNeeded];
+    const genBagsAdjusted = [...(demand.genBagsNeeded ?? [])];
     genBagsAdjusted[maxGen - 1] = produceNew + restockQty;
 
+    const ratio = safeNumber(demand.profile?.gen1ToGen2Ratio, 10) || 1;
     for (let i = maxGen - 2; i >= 0; i--) {
-      genBagsAdjusted[i] = Math.ceil(genBagsAdjusted[i + 1] / demand.profile.gen1ToGen2Ratio);
+      genBagsAdjusted[i] = Math.ceil(safeNumber(genBagsAdjusted[i + 1], 0) / ratio);
     }
 
     return {
@@ -302,8 +409,8 @@ export class SchedulerEngine {
     hw: HardwareSettings,
     output: SchedulerOutput
   ): void {
-    const p = demand.profile;
-    const maxGen = p.maxGenerations || 2;
+    const p = demand.profile ?? ({} as SpeciesProfile);
+    const maxGen = safeNumber(p.maxGenerations, 2);
 
     // Start production chain based on the Weekly Target's anchor date
     // Note: ensure we parse it as local time to avoid timezone shifts
@@ -323,21 +430,21 @@ export class SchedulerEngine {
     // Middle and final generations
     for (let i = 1; i < maxGen; i++) {
         // Gen N inoculates after Gen N-1 finishes colonizing
-        const prevColonizationDays = i === 1 ? p.lcToGen1DaysMax : p.gen2ColonizationDaysMax;
+        const prevColonizationDays = i === 1 ? safeNumber(p.lcToGen1DaysMax, 0) : safeNumber(p.gen2ColonizationDaysMax, 0);
         inocDates[i] = shiftIfClosed(addDays(inocDates[i - 1], prevColonizationDays), hw, 1);
         pcDates[i] = shiftIfClosed(addDays(inocDates[i], -1), hw, -1);
     }
 
     // Bulk Inoculation
-    const bulkInocDate = shiftIfClosed(addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax), hw, 1);
+    const bulkInocDate = shiftIfClosed(addDays(inocDates[maxGen - 1], safeNumber(p.gen2ColonizationDaysMax, 0)), hw, 1);
 
     // ------ Schedule Grain Generations ---------------------------------------
     for (let i = 0; i < maxGen; i++) {
-      const bagsToMake = demand.genBagsAdjusted[i];
+      const bagsToMake = safeNumber(demand.genBagsAdjusted?.[i], 0);
       if (bagsToMake <= 0) continue;
 
       const genNum = i + 1;
-      
+
       // PC_RUN_GRAIN
       if (this.isInHorizon(pcDates[i], today, hw)) {
         this.addPCRequest(calendar, {
@@ -366,7 +473,7 @@ export class SchedulerEngine {
         } else {
           this.addTask(calendar, inocDates[i], {
             taskType: 'G2G_TRANSFER',
-            title: `G2G Transfer --- ${demand.genBagsAdjusted[i-1]}-- Gen${i} --- ${bagsToMake}-- Gen${genNum} ${demand.speciesName}`,
+            title: `G2G Transfer --- ${safeNumber(demand.genBagsAdjusted?.[i-1], 0)}-- Gen${i} --- ${bagsToMake}-- Gen${genNum} ${demand.speciesName}`,
             speciesId: demand.speciesId,
             estimatedMins: estimateMins('G2G_TRANSFER', hw),
             status: 'PENDING',
@@ -377,7 +484,7 @@ export class SchedulerEngine {
     }
 
     // ------ FRIDGE pull tasks ---------------------------------------------------------------------------------------------------------------
-    if (demand.finalGenBagsFromFridge > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
+    if (safeNumber(demand.finalGenBagsFromFridge, 0) > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
       this.addTask(calendar, bulkInocDate, {
         taskType: 'MOVE_TO_FRIDGE',
         title: `Pull ${demand.finalGenBagsFromFridge}-- ${demand.speciesName} Gen${maxGen} from Fridge`,
@@ -389,9 +496,9 @@ export class SchedulerEngine {
     }
 
     // ------ BULK inoculation ------------------------------------------------------------------------------------------------------------------
-    const totalBulkToMake = demand.bulkBlocksNeeded; // this uses both new + fridge
+    const totalBulkToMake = safeNumber(demand.bulkBlocksNeeded, 0); // this uses both new + fridge
     if (totalBulkToMake > 0 && this.isInHorizon(bulkInocDate, today, hw)) {
-      if (species.bulkPrepMethod === 'PC') {
+      if (species?.bulkPrepMethod === 'PC') {
         const pcBulkDate = shiftIfClosed(addDays(bulkInocDate, -1), hw, -1);
         if (this.isInHorizon(pcBulkDate, today, hw)) {
           this.addPCRequest(calendar, {
@@ -415,7 +522,7 @@ export class SchedulerEngine {
           notes: `Scheduled to inoculate ${totalBulkToMake} bulk blocks to meet target harvest goal.`,
         }, hw, output);
 
-      } else if (species.bulkPrepMethod === 'PASTEURIZE') {
+      } else if (species?.bulkPrepMethod === 'PASTEURIZE') {
         this.addTask(calendar, bulkInocDate, {
           taskType: 'PASTEURIZE_BULK_CVG',
           title: `Pasteurize CVG + Inoculate --- ${totalBulkToMake}-- ${demand.speciesName}`,
@@ -425,7 +532,7 @@ export class SchedulerEngine {
           notes: `Scheduled to prepare and inoculate ${totalBulkToMake} pasteurized blocks to meet target harvest goal.`,
         }, hw, output);
 
-      } else if (species.bulkPrepMethod === 'NONE') {
+      } else if (species?.bulkPrepMethod === 'NONE') {
         this.addTask(calendar, bulkInocDate, {
           taskType: 'LOAD_FRUITING_CHAMBER',
           title: `Load Fruiting Chamber --- ${totalBulkToMake}-- ${demand.speciesName}`,
@@ -438,9 +545,9 @@ export class SchedulerEngine {
     }
 
     // ------ MOVE surplus GenN to Fridge ---------------------------------------------------------------------------------
-    const surplusGen = demand.finalGenBagsToRestock;
+    const surplusGen = safeNumber(demand.finalGenBagsToRestock, 0);
     if (surplusGen > 0 && this.isInHorizon(inocDates[maxGen - 1], today, hw)) {
-      const moveFridgeDate = shiftIfClosed(addDays(inocDates[maxGen - 1], p.gen2ColonizationDaysMax), hw, 1);
+      const moveFridgeDate = shiftIfClosed(addDays(inocDates[maxGen - 1], safeNumber(p.gen2ColonizationDaysMax, 0)), hw, 1);
       if (this.isInHorizon(moveFridgeDate, today, hw)) {
         this.addTask(calendar, moveFridgeDate, {
           taskType: 'MOVE_TO_FRIDGE',
@@ -505,23 +612,23 @@ export class SchedulerEngine {
       const lookbackDate = addDays(req.date, -2);
       for (let d = new Date(lookbackDate); d < new Date(req.date); d = addDays(d, 1)) {
         if (remainingBags <= 0) break;
-        
+
         const dayKey = toDateStr(d);
         const day = calendar.get(dayKey);
         if (!day) continue;
 
         // Find existing run of the same type with open slots
-        const existingRun = day.pcRuns.find(r => r.runType === req.runType);
+        const existingRun = (day.pcRuns ?? []).find(r => r.runType === req.runType);
         if (existingRun) {
           const usedSlots = existingRun.slots.reduce((s, sl) => s + sl.quantity, 0);
           const openSlots = hw.maxBagsPerPcRun - usedSlots;
-          
+
           if (openSlots > 0) {
             const toPlace = Math.min(remainingBags, openSlots);
             existingRun.slots.push({ speciesId: req.speciesId, bagType: req.bagType, quantity: toPlace });
             existingRun.bagCount += toPlace;
             remainingBags -= toPlace;
-            
+
             // Update the existing PC task title to reflect the new total
             const taskType = req.runType === 'GRAIN' ? 'PC_RUN_GRAIN' : req.runType === 'BULK' ? 'PC_RUN_BULK' : 'PC_RUN_MICROLAB';
             const pcTask = day.tasks.find(t => t.taskType === taskType);
@@ -545,9 +652,10 @@ export class SchedulerEngine {
         const day = calendar.get(dayKey);
         if (!day) continue;
 
-        const grainRuns = day.pcRuns.filter(r => r.runType === 'GRAIN').length;
-        const bulkRuns  = day.pcRuns.filter(r => r.runType === 'BULK').length;
-        const mlabRuns  = day.pcRuns.filter(r => r.runType === 'MICROLAB').length;
+        const pcRuns = day.pcRuns ?? [];
+        const grainRuns = pcRuns.filter(r => r.runType === 'GRAIN').length;
+        const bulkRuns  = pcRuns.filter(r => r.runType === 'BULK').length;
+        const mlabRuns  = pcRuns.filter(r => r.runType === 'MICROLAB').length;
         const totalRuns = grainRuns + bulkRuns + mlabRuns;
 
         // Hard constraint: no more than (maxPcRunsPerDay * pcUnitCount)
@@ -557,7 +665,7 @@ export class SchedulerEngine {
         // They will be in separate PC runs naturally because of the runType grouping.
 
         // Try to fill an existing same-type run first
-        const existingRun = day.pcRuns.find(r => r.runType === req.runType);
+        const existingRun = pcRuns.find(r => r.runType === req.runType);
         if (existingRun) {
           const usedSlots = existingRun.slots.reduce((s, sl) => s + sl.quantity, 0);
           const openSlots = hw.maxBagsPerPcRun - usedSlots;
@@ -584,6 +692,7 @@ export class SchedulerEngine {
             cycleMins,
             slots: [{ speciesId: req.speciesId, bagType: req.bagType, quantity: toPlace }],
           };
+          day.pcRuns = day.pcRuns ?? [];
           day.pcRuns.push(newRun);
           output.pcRunDrafts.push(newRun);
 
@@ -635,7 +744,10 @@ export class SchedulerEngine {
     hw: HardwareSettings,
     output: SchedulerOutput
   ): void {
-    for (const batch of batches) {
+    const safeBatches = Array.isArray(batches) ? batches : [];
+    for (const batch of safeBatches) {
+      if (!batch) continue;
+
       // Check colonization completion
       if (batch.status === 'INCUBATING' && batch.colonizationTarget) {
         const targetDate = fromDateStr(batch.colonizationTarget);
@@ -673,7 +785,7 @@ export class SchedulerEngine {
         let currentFlushDate = fromDateStr(batch.fruitingTargetEnd);
         let flushNum = (batch.flushCount ?? 0) + 1;
         const maxFlushes = 3; // Typically stop predicting after 3 flushes
-        
+
         while (flushNum <= maxFlushes && this.isInHorizon(currentFlushDate, today, hw)) {
           // 1. Harvest Task
           this.addTask(calendar, currentFlushDate, {
@@ -721,14 +833,16 @@ export class SchedulerEngine {
     today: Date,
     hw: HardwareSettings
   ): void {
+    const safeTasks = Array.isArray(tasks) ? tasks : [];
     // Build per-species LC consumption from scheduled INOCULATE_GEN1 tasks
     const consumption: Map<number, number> = new Map();
-    for (const task of tasks) {
+    for (const task of safeTasks) {
+      if (!task) continue;
       if (task.taskType === 'INOCULATE_GEN1' && task.speciesId != null) {
         const current = consumption.get(task.speciesId) ?? 0;
         const species = speciesMap.get(task.speciesId);
         if (species) {
-          consumption.set(task.speciesId, current + species.lcInjectionVolumeMl);
+          consumption.set(task.speciesId, current + safeNumber(species.lcInjectionVolumeMl, 0));
         }
       }
     }
@@ -738,12 +852,12 @@ export class SchedulerEngine {
       const species = speciesMap.get(speciesId);
       if (!species) continue;
 
-      const available = species.lcVolumeMlAvailable;
+      const available = safeNumber(species.lcVolumeMlAvailable, 0);
       output.lcDeltas[speciesId] = -totalMl;
 
-      if (totalMl > available || (available - totalMl) < species.lcRestockThresholdMl) {
+      if (totalMl > available || (available - totalMl) < safeNumber(species.lcRestockThresholdMl, 0)) {
         // Let engine schedule INOCULATE_LC (requires MICROLAB PC) and PREP_LC today
-        
+
         // 1. Prepare Liquid Culture (make broth, sterilize)
         this.addPCRequest(calendar, {
           runType: 'MICROLAB',
@@ -787,12 +901,13 @@ export class SchedulerEngine {
     hw: HardwareSettings,
     output: SchedulerOutput
   ): void {
+    const safeTasks = Array.isArray(tasks) ? tasks : [];
     // Running totals per material
     const consumed: Map<number, number> = new Map();
 
-    for (const task of tasks) {
-      if (!task.taskType) continue;
-      const taskRecipes = recipes.filter(r => r.taskType === task.taskType);
+    for (const task of safeTasks) {
+      if (!task || !task.taskType) continue;
+      const taskRecipes = (recipes ?? []).filter(r => r.taskType === task.taskType);
       for (const recipe of taskRecipes) {
         let bagCount = 1;
         if (task.title) {
@@ -801,8 +916,8 @@ export class SchedulerEngine {
             bagCount = parseInt(match[1], 10) || 1;
           }
         }
-        const weightFactor = (task.bagWeightLbs ?? hw.defaultBagWeightLbs) / hw.defaultBagWeightLbs;
-        const total = recipe.quantityPerBag * bagCount * weightFactor;
+        const weightFactor = safeNumber(task.bagWeightLbs, hw.defaultBagWeightLbs) / (hw.defaultBagWeightLbs || 1);
+        const total = safeNumber(recipe.quantityPerBag, 0) * bagCount * weightFactor;
         consumed.set(recipe.materialId, (consumed.get(recipe.materialId) ?? 0) + total);
       }
     }
@@ -811,10 +926,10 @@ export class SchedulerEngine {
       const material = rawMaterials.get(materialId);
       if (!material) continue;
 
-      const remaining = material.quantityOnHand - totalConsumed;
+      const remaining = safeNumber(material.quantityOnHand, 0) - totalConsumed;
       output.inventoryDeltas.push({ materialId, delta: -totalConsumed });
 
-      if (remaining < material.reorderThreshold) {
+      if (remaining < safeNumber(material.reorderThreshold, 0)) {
         output.warnings.push({
           type: 'MATERIAL_LOW',
           date: new Date().toISOString().split('T')[0],
@@ -835,13 +950,14 @@ export class SchedulerEngine {
     output: SchedulerOutput
   ): void {
     for (const [dateStr, day] of calendar.entries()) {
+      const pcRuns = day?.pcRuns ?? [];
       // Check PC run ceiling
       const maxAllowed = hw.maxPcRunsPerDay * hw.pcUnitCount;
-      if (day.pcRuns.length > maxAllowed) {
+      if (pcRuns.length > maxAllowed) {
         output.warnings.push({
           type: 'PC_CAPACITY',
           date: dateStr,
-          message: `Day ${dateStr} has ${day.pcRuns.length} PC runs scheduled but max is ${maxAllowed} (${hw.maxPcRunsPerDay} runs * ${hw.pcUnitCount} PCs).`,
+          message: `Day ${dateStr} has ${pcRuns.length} PC runs scheduled but max is ${maxAllowed} (${hw.maxPcRunsPerDay} runs * ${hw.pcUnitCount} PCs).`,
           taskRef: 'PC_CAP',
           severity: 'ERROR',
         });
@@ -851,7 +967,8 @@ export class SchedulerEngine {
       // Since they are on different runs, there is no contamination risk.
 
       // Flag over-budget days (Q4: soft warning, not block)
-      const totalMins = day.tasks.reduce((s, t) => s + (t.estimatedMins ?? 0), 0);
+      const dayTasks = day?.tasks ?? [];
+      const totalMins = dayTasks.reduce((s, t) => s + safeNumber(t.estimatedMins, 0), 0);
       if (totalMins > hw.dailyAvailableMins) {
         day.isOverBudget = true;
         output.warnings.push({
@@ -863,8 +980,8 @@ export class SchedulerEngine {
           severity: 'WARNING',
         });
         // Mark all tasks on this day as over-budget
-        for (const task of day.tasks) {
-          if (task.status === 'PENDING') {
+        for (const task of dayTasks) {
+          if (task?.status === 'PENDING') {
             task.status = 'OVER_BUDGET_WARNING';
           }
         }
@@ -880,7 +997,11 @@ export class SchedulerEngine {
     existingTasks: Task[]
   ): Map<string, DayEntry> {
     const calendar = new Map<string, DayEntry>();
-    for (let i = 0; i < hw.schedulingHorizonDays; i++) {
+    // Phase 5 Step 2: hw.schedulingHorizonDays has already been overridden by
+    // computeHorizonDays() at the top of run(), so the calendar naturally sizes
+    // itself to the slowest species' biological timeline.
+    const horizon = Math.max(1, safeNumber(hw?.schedulingHorizonDays, HORIZON_FALLBACK_DAYS));
+    for (let i = 0; i < horizon; i++) {
       const d = addDays(today, i);
       const key = toDateStr(d);
       calendar.set(key, {
@@ -892,7 +1013,9 @@ export class SchedulerEngine {
       });
     }
     // Pre-populate with existing tasks
-    for (const task of existingTasks) {
+    const safeExisting = Array.isArray(existingTasks) ? existingTasks : [];
+    for (const task of safeExisting) {
+      if (!task) continue;
       const day = calendar.get(task.taskDate);
       if (day) day.tasks.push(task);
     }
@@ -920,7 +1043,7 @@ export class SchedulerEngine {
   private flattenCalendar(calendar: Map<string, DayEntry>): Partial<Task>[] {
     const tasks: Partial<Task>[] = [];
     for (const [, day] of [...calendar.entries()].sort()) {
-      tasks.push(...day.tasks);
+      tasks.push(...(day?.tasks ?? []));
     }
     return tasks;
   }
@@ -934,6 +1057,6 @@ export class SchedulerEngine {
       'Yellow Oyster':'YO',
       'Cordyceps':    'COR',
     };
-    return codes[commonName] ?? commonName.substring(0, 3).toUpperCase();
+    return codes[commonName] ?? (commonName?.substring(0, 3).toUpperCase() ?? 'XXX');
   }
 }

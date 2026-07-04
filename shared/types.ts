@@ -67,6 +67,11 @@ export type TaskStatus =
   | 'OVER_BUDGET_WARNING';
 
 export type OriginType = 'SPORE_PRINT' | 'CLONE' | 'COMMERCIAL_LC' | 'AGAR';
+
+// Phase 5: Target cadence — WEEKLY emits demand every week, MONTHLY only every 4 weeks
+// (the Monthly Rotator slot).
+export type TargetInterval = 'WEEKLY' | 'MONTHLY';
+
 export type MaterialType = 'SPORE_PRINT' | 'AGAR_PLATE' | 'LC_JAR' | 'LC_SYRINGE';
 export type GeneticMaterialStatus = 'ACTIVE' | 'DEPLETED' | 'CONTAMINATED' | 'ARCHIVED';
 export type ContamType = 'TRICH' | 'BACTERIA' | 'MOLD' | 'UNKNOWN';
@@ -161,6 +166,12 @@ export interface WeeklyTarget {
   weekStartDate: string;
   isActive: boolean;
   createdAt: string;
+  // Phase 5: WEEKLY = schedule every 7 days (default),
+  // MONTHLY = schedule once every 4 weeks (Monthly Rotator slot).
+  // Optional in type to remain backward-compatible with rows that
+  // pre-date the 006 migration (we treat missing as 'WEEKLY' at the
+  // engine boundary).
+  targetInterval?: TargetInterval;
 }
 
 export interface Lineage {
@@ -387,6 +398,10 @@ export interface DemandResult {
   lcMlPerWeek: number;
   profile: SpeciesProfile;
   weekStartDate: string;
+  // Phase 5: carries the cadence flag from the WeeklyTarget through
+  // to the production-chain generator. Defaults to WEEKLY when absent
+  // so the engine still works on rows that pre-date the 006 migration.
+  targetInterval?: TargetInterval;
 }
 
 export interface AdjustedDemand extends DemandResult {
@@ -422,6 +437,11 @@ export interface SchedulerOutput {
   inventoryDeltas: Array<{ materialId: number; delta: number }>;
   lcDeltas: Record<number, number>;
   pcRunDrafts: PCRunDraft[];
+  // Phase 5 Step 2: dynamic horizon, in days, computed by the engine from
+  // the slowest active species' biological timeline (lcToGen1DaysMax +
+  // gen2ColonizationDaysMax + bulkColonizationDaysMax + fruitingDaysMax).
+  // Routes forward this so the client can paginate / truncate safely.
+  horizonDays: number;
 }
 
 // ─────────────────────────────────────────────────────────────

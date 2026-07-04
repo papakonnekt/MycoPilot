@@ -1,0 +1,4 @@
+-- Intentionally blank.
+-- This deployment ships as a true blank state: 0 species, 0 weekly targets,
+-- 0 fridge buffer items, 0 active batches. Operators add their own data
+-- via the Settings UI on first boot.
