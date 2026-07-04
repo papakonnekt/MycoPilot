@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { setupSettings } from '../lib/api'
 import {
@@ -47,6 +47,20 @@ interface SpeciesEntry {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Inline field error (Soft Structuralism — matches SettingsView
+// `text-[12px] font-mono` error treatment)
+// ─────────────────────────────────────────────────────────────
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null
+  return (
+    <p className="text-[12px] font-mono mt-1.5 leading-snug" style={{ color: 'var(--danger)' }}>
+      {message}
+    </p>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Sub-components
 // ─────────────────────────────────────────────────────────────
 
@@ -62,14 +76,14 @@ function HelpCard({ title, children }: { title: string; children: React.ReactNod
   )
 }
 
-function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function FieldGroup({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
     <div>
       <label className="block text-[13px] font-semibold mb-1.5" style={{ color: 'var(--surface-muted)' }}>
         {label}
       </label>
       {children}
-      {hint && <p className="text-[12px] text-surface-muted mt-1.5 leading-relaxed">{hint}</p>}
+      {error ? <FieldError message={error} /> : hint && <p className="text-[12px] text-surface-muted mt-1.5 leading-relaxed">{hint}</p>}
     </div>
   )
 }
@@ -84,6 +98,22 @@ function DayRange({
   onMin: (v: number) => void
   onMax: (v: number) => void
 }) {
+  // ── Auto-swap fix: if min > max (and both are real numbers),
+  //    swap them via the parent's setters so the inversion is
+  //    invisible to the user. Uses useEffect so we catch inversions
+  //    from ANY source — preset apply, parent state, etc.
+  useEffect(() => {
+    const a = Number(min)
+    const b = Number(max)
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return
+    if (a > b) {
+      onMin(b)
+      onMax(a)
+    }
+    // We intentionally only react to (min, max) value changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [min, max])
+
   return (
     <div>
       <p className="text-[12px] font-semibold uppercase tracking-wide mb-2" style={{ color: 'var(--surface-muted)' }}>
@@ -98,7 +128,10 @@ function DayRange({
           onChange={e => {
             const v = intVal(e.target.value);
             onMin(v);
-            if (v > max) onMax(v);
+            // Atomic swap if the new min would exceed max.
+            // Both calls land in the same React batch → no flash.
+            const newMax = Number(max)
+            if (Number.isFinite(newMax) && Number(v) > newMax) onMax(v);
           }}
         />
         <span className="text-[12px] text-surface-muted w-4 text-center">to</span>
@@ -109,7 +142,9 @@ function DayRange({
           onChange={e => {
             const v = intVal(e.target.value);
             onMax(v);
-            if (v < min) onMin(v);
+            // Atomic swap if the new max would drop below min.
+            const newMin = Number(min)
+            if (Number.isFinite(newMin) && Number(v) < newMin) onMin(v);
           }}
         />
         <span className="text-[12px] text-surface-muted w-8">days</span>
@@ -187,6 +222,96 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
   const [incubating, setIncubating] = useState<
     { speciesIdx: number; stage: string; quantity: number; colonizationPct: number }[]
   >([])
+
+  // ── Per-step validation (derived, reactive) ─────────────────
+  // Each predicate returns true only when the step's required
+  // fields are populated with sensible values. Steps 5/6/7 are
+  // optional — they validate true even if empty so the user can
+  // skip them.
+  const step1IsValid = useMemo(() => {
+    return (
+      Number(hardware.pc_unit_count) > 0 &&
+      Number(hardware.maxPcRunsPerDay) > 0 &&
+      Number(hardware.maxBagsPerPcRun) > 0 &&
+      Number(hardware.grainCycleMins) > 0 &&
+      Number(hardware.bulkCycleMins) > 0 &&
+      Number(hardware.microlabCycleMins) > 0 &&
+      Number(hardware.dailyAvailableMins) >= 30
+    )
+  }, [hardware])
+
+  const step2IsValid = useMemo(() => {
+    // Recipes are optional — empty is fine. If any recipes exist,
+    // every one must have a name AND at least one ingredient AND
+    // every ingredient must have a name.
+    if (recipes.length === 0) return true
+    return recipes.every(r =>
+      r.name.trim().length > 0 &&
+      r.ingredients.length > 0 &&
+      r.ingredients.every(i => i.ingredient.trim().length > 0)
+    )
+  }, [recipes])
+
+  const step3IsValid = useMemo(() => {
+    if (speciesList.length === 0) return false
+    return speciesList.every(s =>
+      s.commonName.trim().length > 0 &&
+      Number(s.maxGenerations) >= 1
+    )
+  }, [speciesList])
+
+  const step4IsValid = useMemo(() => {
+    if (speciesList.length === 0) return false
+    return speciesList.every(s => {
+      const checks = [
+        Number(s.lcToGen1DaysMin) > 0,
+        Number(s.lcToGen1DaysMax) > 0,
+        Number(s.bulkColonizationDaysMin) > 0,
+        Number(s.bulkColonizationDaysMax) > 0,
+        Number(s.fruitingDaysMin) > 0,
+        Number(s.fruitingDaysMax) > 0,
+      ]
+      if (s.maxGenerations > 1) {
+        checks.push(
+          Number(s.gen2ColonizationDaysMin) > 0,
+          Number(s.gen2ColonizationDaysMax) > 0,
+        )
+      }
+      return checks.every(Boolean)
+    })
+  }, [speciesList])
+
+  // Steps 5 (Targets), 6 (Inventory), 7 (Incubating) are optional.
+  const step5IsValid = useMemo(() => true, [])
+  const step6IsValid = useMemo(() => true, [])
+  const step7IsValid = useMemo(() => {
+    // If the user has added incubating batches, every batch needs
+    // quantity > 0. An empty list is fine.
+    return incubating.every(i => Number(i.quantity) > 0)
+  }, [incubating])
+
+  const stepValidity: Record<number, boolean> = {
+    1: step1IsValid,
+    2: step2IsValid,
+    3: step3IsValid,
+    4: step4IsValid,
+    5: step5IsValid,
+    6: step6IsValid,
+    7: step7IsValid,
+  }
+
+  // Per-field error messages for inline display.
+  const hardwareErrors = useMemo(() => ({
+    pcUnit: Number(hardware.pc_unit_count) > 0 ? undefined : 'Must be at least 1.',
+    maxBags: Number(hardware.maxBagsPerPcRun) > 0 ? undefined : 'Must be at least 1.',
+    maxRuns: Number(hardware.maxPcRunsPerDay) > 0 ? undefined : 'Must be at least 1.',
+    grain: Number(hardware.grainCycleMins) > 0 ? undefined : 'Cycle must be greater than 0.',
+    bulk: Number(hardware.bulkCycleMins) > 0 ? undefined : 'Cycle must be greater than 0.',
+    micro: Number(hardware.microlabCycleMins) > 0 ? undefined : 'Cycle must be greater than 0.',
+    daily: Number(hardware.dailyAvailableMins) >= 30
+      ? undefined
+      : 'Daily budget must be at least 30 minutes.',
+  }), [hardware])
 
   // ── Navigation ───────────────────────────────────────────────
   const validateStep = (currentStep: number): string | null => {
@@ -408,17 +533,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
 
                 <div className="lab-card p-5 space-y-5">
                   <div className="grid grid-cols-2 gap-4">
-                    <FieldGroup label="Number of PCs" hint="How many pressure cookers?">
+                    <FieldGroup label="Number of PCs" hint="How many pressure cookers?" error={hardwareErrors.pcUnit}>
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.pc_unit_count}
                         onChange={e => setHardware({ ...hardware, pc_unit_count: intVal(e.target.value) })} />
                     </FieldGroup>
-                    <FieldGroup label="Max Bags / Run" hint="How many bags fit at once?">
+                    <FieldGroup label="Max Bags / Run" hint="How many bags fit at once?" error={hardwareErrors.maxBags}>
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.maxBagsPerPcRun}
                         onChange={e => setHardware({ ...hardware, maxBagsPerPcRun: intVal(e.target.value) })} />
                     </FieldGroup>
-                    <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?">
+                    <FieldGroup label="Max PC Runs / Day" hint="How many times a day will you run it?" error={hardwareErrors.maxRuns}>
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.maxPcRunsPerDay}
                         onChange={e => setHardware({ ...hardware, maxPcRunsPerDay: intVal(e.target.value) })} />
@@ -430,17 +555,17 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                       Sterilization Cycle Times
                     </p>
                     <div className="space-y-3">
-                      <FieldGroup label="Grain Cycle (minutes)" hint="Time at pressure for grain bags">
+                      <FieldGroup label="Grain Cycle (minutes)" hint="Time at pressure for grain bags" error={hardwareErrors.grain}>
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.grainCycleMins}
                           onChange={e => setHardware({ ...hardware, grainCycleMins: intVal(e.target.value) })} />
                       </FieldGroup>
-                      <FieldGroup label="Bulk Substrate Cycle (minutes)" hint="Time at pressure for bulk blocks">
+                      <FieldGroup label="Bulk Substrate Cycle (minutes)" hint="Time at pressure for bulk blocks" error={hardwareErrors.bulk}>
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.bulkCycleMins}
                           onChange={e => setHardware({ ...hardware, bulkCycleMins: intVal(e.target.value) })} />
                       </FieldGroup>
-                      <FieldGroup label="Micro-Lab Cycle (minutes)" hint="Time for LC jars, agar plates, etc.">
+                      <FieldGroup label="Micro-Lab Cycle (minutes)" hint="Time for LC jars, agar plates, etc." error={hardwareErrors.micro}>
                         <input type="number" min="1" className="lab-input w-full"
                           value={hardware.microlabCycleMins}
                           onChange={e => setHardware({ ...hardware, microlabCycleMins: intVal(e.target.value) })} />
@@ -452,7 +577,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                     <p className="text-[12px] font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--surface-muted)' }}>
                       Daily Budget
                     </p>
-                    <FieldGroup label="Available Lab Time / Day (minutes)" hint="How many minutes a day can you spend in the lab? 480 = 8 hrs">
+                    <FieldGroup label="Available Lab Time / Day (minutes)" hint="How many minutes a day can you spend in the lab? 480 = 8 hrs" error={hardwareErrors.daily}>
                       <input type="number" min="1" className="lab-input w-full"
                         value={hardware.dailyAvailableMins}
                         onChange={e => setHardware({ ...hardware, dailyAvailableMins: intVal(e.target.value) })} />
@@ -594,7 +719,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                 )}
 
                 <div className="lab-card p-5 space-y-4">
-                  <FieldGroup label="Common Name" hint='e.g. "Blue Oyster", "Lions Mane", "Shiitake"'>
+                  <FieldGroup label="Common Name" hint='e.g. "Blue Oyster", "Lions Mane", "Shiitake"'
+                    error={!sp.commonName.trim() ? 'Common name is required.' : undefined}>
                     <input type="text" className="lab-input w-full"
                       placeholder="e.g. Blue Oyster"
                       value={sp.commonName}
@@ -1104,7 +1230,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
           {step < 7 ? (
             <button
               onClick={goNext}
-              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+              disabled={!stepValidity[step]}
+              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Continue <CaretRight weight="bold" size={16} />
             </button>
@@ -1112,7 +1239,7 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
             <button
               onClick={handleSubmit}
               disabled={isSubmitting || speciesList.some(s => !s.commonName.trim())}
-              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50"
+              className="flex-[2] bg-bio-green text-surface-900 font-bold h-12 rounded-2xl flex items-center justify-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
