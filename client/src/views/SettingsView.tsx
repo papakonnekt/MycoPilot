@@ -91,6 +91,11 @@ interface HardwareDraft {
   pc_unit_count: number
 }
 
+// Phase 5 Step 2: weekly_targets.target_interval narrows to this union.
+// Optional in the draft because the server normalises missing values to
+// 'WEEKLY' on save -- keeps partial saves from breaking the form state.
+export type Cadence = 'WEEKLY' | 'MONTHLY'
+
 interface SpeciesDraft {
   id: number
   common_name: string
@@ -119,6 +124,8 @@ interface SpeciesDraft {
   min_gen2_bags: number
   target_gen2_bags: number
   target_blocks_per_wk: number
+  // Phase 5 Step 2: WEEKLY (1× / week) or MONTHLY (1× / 28 days, rotator slot).
+  target_interval: Cadence
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -187,6 +194,11 @@ function toSpeciesDraft(row: SettingsSpeciesRow, data: SettingsPayload): Species
     min_gen2_bags: fridge ? num(fridge.min_gen2_bags, 2) : 2,
     target_gen2_bags: fridge ? num(fridge.target_gen2_bags, 4) : 4,
     target_blocks_per_wk: wt ? num(wt.target_blocks_per_wk, 10) : 10,
+    // Phase 5 Step 2: pull target_interval from the joined target row,
+    // defaulting to WEEKLY when missing (pre-006-migration rows or a
+    // backend that hasn't rolled out the column yet).
+    target_interval:
+      wt && (wt as any).target_interval === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY',
   }
 }
 
@@ -348,6 +360,11 @@ function SettingsReady({
           minGen2Bags: draft.min_gen2_bags,
           targetGen2Bags: draft.target_gen2_bags,
           targetBlocksPerWk: draft.target_blocks_per_wk,
+          // Phase 5 Step 2: cadence flows through the same species-profile
+          // PUT endpoint. The route upserts the weekly_targets row with
+          // the new target_interval and leaves target_blocks_per_wk alone
+          // when the client omits it.
+          targetInterval: draft.target_interval,
         })
         await saveSpeciesProtocol(id, draft.protocol_markdown)
         setSpeciesStatus((prev) => ({ ...prev, [id]: 'saved' }))
@@ -1058,6 +1075,42 @@ function SpeciesCard({
           max={100}
           step={1}
         />
+        <div className="block min-w-0">
+          <div className="flex items-baseline justify-between mb-1 gap-2 min-w-0">
+            <span
+              className="text-[10px] uppercase tracking-eyebrow font-medium truncate"
+              style={{ color: 'var(--surface-muted)' }}
+            >
+              Cadence
+            </span>
+            <span
+              className="text-[10px] font-mono shrink-0"
+              style={{ color: 'var(--surface-muted)', opacity: 0.5 }}
+            >
+              Phase 5
+            </span>
+          </div>
+          <div
+            className="flex items-stretch gap-1 rounded-full p-1 min-h-[44px]"
+            style={{
+              background: 'rgba(255,255,255,0.05)',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <CadenceSegment
+              label="Weekly"
+              sub="1× / week"
+              active={draft.target_interval === 'WEEKLY'}
+              onClick={() => onChange({ target_interval: 'WEEKLY' })}
+            />
+            <CadenceSegment
+              label="Monthly Rotator"
+              sub="1× / 28 days"
+              active={draft.target_interval === 'MONTHLY'}
+              onClick={() => onChange({ target_interval: 'MONTHLY' })}
+            />
+          </div>
+        </div>
         <NumberField
           label="Fridge Min"
           hint="G2 spawn"
@@ -1235,6 +1288,52 @@ function RangeField({
         </div>
       </div>
     </div>
+  )
+}
+
+// Soft Structuralism segmented control for the WEEKLY | MONTHLY cadence.
+// Two segments side-by-side, active segment gets bio-green fill with dark
+// text; inactive segments fall back to transparent + surface-muted label.
+function CadenceSegment({
+  label,
+  sub,
+  active,
+  onClick,
+}: {
+  label: string
+  sub: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="flex-1 min-w-0 rounded-full px-2 py-1.5 flex flex-col items-center justify-center transition-all duration-200 active:scale-[0.97]"
+      style={
+        active
+          ? {
+              background: 'var(--bio-green)',
+              color: '#080f0a',
+              boxShadow: '0 1px 0 rgba(0,0,0,0.15)',
+            }
+          : {
+              background: 'transparent',
+              color: 'var(--surface-muted)',
+            }
+      }
+    >
+      <span className="text-[12px] font-semibold leading-tight truncate">
+        {label}
+      </span>
+      <span
+        className="text-[10px] font-mono leading-tight mt-0.5 truncate"
+        style={{ opacity: active ? 0.75 : 0.6 }}
+      >
+        {sub}
+      </span>
+    </button>
   )
 }
 

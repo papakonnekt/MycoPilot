@@ -320,13 +320,19 @@ export interface FridgeThresholdRow {
   common_name?: string
 }
 
-/** weekly_targets row joined w/ common_name */
+// weekly_targets row joined w/ common_name.
+// Phase 5 Step 2: target_interval governs cadence. Optional because legacy
+// rows (pre-006 migration) may not have the column populated yet -- the
+// engine treats missing as 'WEEKLY'.
 export interface WeeklyTargetRow {
   id: number
   species_id: number
   target_blocks_per_wk: number
   target_weight_grams: number | null
   week_start_date: string
+  // Phase 5: 'WEEKLY' (default) or 'MONTHLY'. Optional in the row payload
+  // so older backends that omit the column still typecheck.
+  target_interval?: 'WEEKLY' | 'MONTHLY' | null
   is_active: number | boolean
   created_at: string
   common_name?: string
@@ -749,6 +755,9 @@ export function updateSpeciesProfile(
     minGen2Bags?: number
     targetGen2Bags?: number
     targetBlocksPerWk?: number
+    // Phase 5 Step 2: cadence flag forwarded to /settings/species/:id/profile.
+    // Server persists via the weekly_targets upsert at the tail of that route.
+    targetInterval?: 'WEEKLY' | 'MONTHLY'
   },
 ): Promise<{ success: boolean; message: string }> {
   return request(`/settings/species/${speciesId}/profile`, {
@@ -757,12 +766,27 @@ export function updateSpeciesProfile(
   })
 }
 
-/** PUT /settings/weekly-targets */
-export function updateWeeklyTargets(targets: Array<{ speciesId: number; targetBlocksPerWk: number }>): Promise<void> {
+// PUT /settings/weekly-targets.
+// Phase 5 Step 2: targetInterval carries the cadence flag through.
+// Missing values are coerced to 'WEEKLY' by the server.
+export function updateWeeklyTargets(targets: Array<{
+  speciesId: number
+  targetBlocksPerWk: number
+  targetInterval?: 'WEEKLY' | 'MONTHLY'
+}>): Promise<void> {
   return request('/settings/weekly-targets', {
     method: 'PUT',
     body: JSON.stringify({ targets })
   })
+}
+
+/**
+ * Phase 5 Step 2: lightweight read of weekly_targets rows for clients that
+ * don't want to fetch the full /settings payload. Returns the WeeklyTargetRow
+ * shape (joined w/ common_name) from /settings/weekly-targets.
+ */
+export function getWeeklyTargets(): Promise<WeeklyTargetRow[]> {
+  return request<WeeklyTargetRow[]>('/settings/weekly-targets')
 }
 
 export function saveSpeciesProtocol(id: number | string, protocol_markdown: string): Promise<void> {

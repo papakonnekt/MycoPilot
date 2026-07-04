@@ -97,12 +97,21 @@ CREATE TABLE IF NOT EXISTS fridge_thresholds (
   UNIQUE(species_id)
 );
 
+-- Phase 5 Step 2: target_interval governs cadence on weekly_targets.
+--   WEEKLY  = default — engine schedules one PC run / inoculation per ISO week.
+--   MONTHLY = "Monthly Rotator" — engine schedules one PC run / inoculation
+--             every ~28 days (one rotator slot per 4 weeks). Replaces the
+--             multiplied-per-week demand pattern for low-cadence species.
 CREATE TABLE IF NOT EXISTS weekly_targets (
   id                    INTEGER PRIMARY KEY AUTOINCREMENT,
   species_id            INTEGER NOT NULL REFERENCES species(id) ON DELETE CASCADE,
   target_blocks_per_wk  INTEGER NOT NULL DEFAULT 1,
   target_weight_grams   REAL,
   week_start_date       TEXT    NOT NULL DEFAULT (date('now', 'weekday 0', '-6 days')),
+  -- Phase 5: cadence flag. Default 'WEEKLY' preserves legacy behaviour.
+  -- The CHECK constraint guards against typos creeping in via raw SQL.
+  target_interval       TEXT    NOT NULL DEFAULT 'WEEKLY'
+                        CHECK (target_interval IN ('WEEKLY','MONTHLY')),
   is_active             INTEGER NOT NULL DEFAULT 1,
   created_at            TEXT    NOT NULL DEFAULT (datetime('now'))
 );

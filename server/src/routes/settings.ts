@@ -1,7 +1,17 @@
 import { Router, Request, Response } from 'express';
 import { getDb } from '../db/database';
+import { TargetInterval } from '../../../shared/types';
 
 const router = Router();
+
+/**
+ * Normalize a free-form cadence value to the canonical enum.
+ * Defaults to 'WEEKLY' for unknown / missing values so legacy rows keep
+ * working — Phase 5 row mapper does the same on read.
+ */
+function normalizeInterval(raw: unknown): TargetInterval {
+  return raw === 'MONTHLY' ? 'MONTHLY' : 'WEEKLY';
+}
 
 // ── GET /api/settings ─────────────────────────────────────────
 router.get('/', (_req: Request, res: Response) => {
@@ -119,8 +129,11 @@ router.post('/setup', (req: Request, res: Response) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
+      // Phase 5 Step 2: target_interval (WEEKLY|MONTHLY) carries through
+      // the setup flow. Onboarding allows the user to pick cadence per
+      // species — the value is normalised by the route before the INSERT.
       const insertTargets = db.prepare(`
-        INSERT INTO weekly_targets (species_id, target_blocks_per_wk) VALUES (?, ?)
+        INSERT INTO weekly_targets (species_id, target_blocks_per_wk, target_interval) VALUES (?, ?, ?)
       `);
 
       const insertFridge = db.prepare(`
@@ -165,7 +178,13 @@ router.post('/setup', (req: Request, res: Response) => {
         );
 
         // 3. Targets & Fridge
-        if (sp.weeklyTargetBlocks) insertTargets.run(speciesId, sp.weeklyTargetBlocks);
+        // Phase 5 Step 2: pass the cadence flag through; missing values
+        // collapse to WEEKLY so onboarding never crashes on a partial
+        // payload.
+        if (sp.weeklyTargetBlocks) {
+          const cadence = normalizeInterval((sp as any).targetInterval);
+          insertTargets.run(speciesId, sp.weeklyTargetBlocks, cadence);
+        }
         if (sp.fridgeTargetBags && sp.fridgeMinBags) insertFridge.run(speciesId, sp.fridgeMinBags, sp.fridgeTargetBags);
 
         // 4. Lineage Auto-Generation (e.g. "Blue Oyster" → "BO-01")
@@ -265,22 +284,54 @@ router.put('/hardware', (req: Request, res: Response) => {
   }
 });
 
+// GET /api/settings/weekly-targets -- Phase 5 Step 2 exposes the cadence
+// column alongside the rest of the target row.
+router.get('/weekly-targets', (_req: Request, res: Response) => {
+  const db = getDb();
+  try {
+    const rows = db.prepare(`
+      SELECT wt.*, s.common_name
+      FROM weekly_targets wt
+      JOIN species s ON s.id = wt.species_id
+      WHERE wt.is_active = 1
+      ORDER BY s.common_name
+    `).all();
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, error: String(err) });
+  }
+});
+
 // ── PUT /api/settings/weekly-targets ─────────────────────────
+// PUT /api/settings/weekly-targets -- Phase 5 Step 2 adds the cadence flag.
 router.put('/weekly-targets', (req: Request, res: Response) => {
   const db = getDb();
-  const { targets } = req.body as { targets: Array<{ speciesId: number; targetBlocksPerWk: number }> };
+  const { targets } = req.body as {
+    targets: Array<{
+      speciesId: number;
+      targetBlocksPerWk: number;
+      targetInterval?: TargetInterval | string;
+    }>;
+  };
 
   try {
     const upsert = db.prepare(`
-      INSERT INTO weekly_targets (species_id, target_blocks_per_wk, is_active)
-      VALUES (@speciesId, @targetBlocksPerWk, 1)
+      INSERT INTO weekly_targets (species_id, target_blocks_per_wk, target_interval, is_active)
+      VALUES (@speciesId, @targetBlocksPerWk, @targetInterval, 1)
       ON CONFLICT(species_id) DO UPDATE SET
         target_blocks_per_wk = excluded.target_blocks_per_wk,
+        target_interval     = excluded.target_interval,
         is_active = 1
     `);
 
     const upsertMany = db.transaction(() => {
-      for (const t of targets) upsert.run(t);
+      for (const t of targets) {
+        upsert.run({
+          speciesId: t.speciesId,
+          targetBlocksPerWk: t.targetBlocksPerWk,
+          targetInterval: normalizeInterval(t.targetInterval),
+        });
+      }
     });
     upsertMany();
 
@@ -353,16 +404,25 @@ router.put('/species/:id/profile', (req: Request, res: Response) => {
         `).run(id, p.minGen2Bags, p.targetGen2Bags);
       }
 
-      // 5. Update weekly_targets
-      if (p.targetBlocksPerWk !== undefined) {
-        db.prepare(`
-          INSERT INTO weekly_targets (species_id, target_blocks_per_wk, is_active)
-          VALUES (?, ?, 1)
-          ON CONFLICT(species_id) DO UPDATE SET
-            target_blocks_per_wk = excluded.target_blocks_per_wk,
-            is_active = 1
-        `).run(id, p.targetBlocksPerWk);
-      }
+// 5. Update weekly_targets -- Phase 5 Step 2 also persists the cadence.
+// We only touch target_interval when the client explicitly sends a value;
+// missing values leave the existing row's cadence intact.
+if (p.targetBlocksPerWk !== undefined || p.targetInterval !== undefined) {
+  const cadence =
+    p.targetInterval !== undefined
+      ? normalizeInterval(p.targetInterval)
+      : 'WEEKLY';
+  const blocks =
+    p.targetBlocksPerWk !== undefined ? p.targetBlocksPerWk : 0;
+  db.prepare(`
+    INSERT INTO weekly_targets (species_id, target_blocks_per_wk, target_interval, is_active)
+    VALUES (?, ?, ?, 1)
+    ON CONFLICT(species_id) DO UPDATE SET
+      target_blocks_per_wk = COALESCE(excluded.target_blocks_per_wk, weekly_targets.target_blocks_per_wk),
+      target_interval     = excluded.target_interval,
+      is_active = 1
+  `).run(id, blocks, cadence);
+}
     });
 
     runUpdate();

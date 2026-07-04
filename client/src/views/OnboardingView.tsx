@@ -22,6 +22,10 @@ interface Recipe {
   ingredients: RecipeIngredient[]
 }
 
+// Phase 5 Step 2: cadence flag rides along on the species entry. Defaults
+// to WEEKLY so legacy onboarding payloads still validate.
+export type OnboardingCadence = 'WEEKLY' | 'MONTHLY'
+
 interface SpeciesEntry {
   commonName: string
   defaultRecipeIdx?: number
@@ -37,6 +41,8 @@ interface SpeciesEntry {
   fruitingDaysMin: number
   fruitingDaysMax: number
   weeklyTargetBlocks: number
+  // Phase 5: WEEKLY = 1× per week, MONTHLY = 1× per 28 days (rotator slot).
+  targetInterval: OnboardingCadence
   fridgeTargetBags: number
   fridgeMinBags: number
   startingLcVolumeMl: number
@@ -207,6 +213,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
       bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
       fruitingDaysMin: 7, fruitingDaysMax: 14,
       weeklyTargetBlocks: 0,
+      // Phase 5: defaults to WEEKLY so old payloads still work.
+      targetInterval: 'WEEKLY',
       fridgeTargetBags: 0,
       fridgeMinBags: 0,
       startingLcVolumeMl: 0,
@@ -401,6 +409,8 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
         bulkColonizationDaysMin: 14, bulkColonizationDaysMax: 21,
         fruitingDaysMin: 7, fruitingDaysMax: 14,
         weeklyTargetBlocks: 0, fridgeTargetBags: 0, fridgeMinBags: 0,
+        // Phase 5: new species default to WEEKLY cadence.
+        targetInterval: 'WEEKLY',
         startingLcVolumeMl: 0,
         sterilizedGrains: [], sterilizedSubstrate: [], incubating: [],
         hasInventoryLogged: false,
@@ -463,6 +473,9 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
           fruitingDaysMin: Number(s.fruitingDaysMin) || 7,
           fruitingDaysMax: Number(s.fruitingDaysMax) || 14,
           weeklyTargetBlocks: Number(s.weeklyTargetBlocks) || 0,
+          // Phase 5 Step 2: forward the cadence choice. Server normalises
+          // unknown values to WEEKLY so legacy payload shapes still work.
+          targetInterval: s.targetInterval,
           fridgeTargetBags: Number(s.fridgeTargetBags) || 0,
           fridgeMinBags: Number(s.fridgeMinBags) || 0,
           startingLcVolumeMl: Number(s.startingLcVolumeMl) || 0,
@@ -865,6 +878,44 @@ export default function OnboardingView({ onComplete }: { onComplete: () => void 
                               newList[idx].weeklyTargetBlocks = intVal(e.target.value);
                               setSpeciesList(newList);
                             }} />
+                        </FieldGroup>
+
+                        <FieldGroup label="Cadence" hint="WEEKLY = 1 run per week. MONTHLY = 1 run every 28 days (Monthly Rotator slot — won't pile up if the species is low priority).">
+                          <div className="flex items-stretch gap-1 rounded-full p-1 min-h-[44px]"
+                            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <button
+                              type="button"
+                              aria-pressed={s.targetInterval === 'WEEKLY'}
+                              onClick={() => {
+                                const newList = [...speciesList];
+                                newList[idx].targetInterval = 'WEEKLY';
+                                setSpeciesList(newList);
+                              }}
+                              className="flex-1 rounded-full px-2 py-1.5 flex flex-col items-center justify-center transition-all duration-200 active:scale-[0.97]"
+                              style={s.targetInterval === 'WEEKLY'
+                                ? { background: 'var(--bio-green)', color: '#080f0a', boxShadow: '0 1px 0 rgba(0,0,0,0.15)' }
+                                : { background: 'transparent', color: 'var(--surface-muted)' }}
+                            >
+                              <span className="text-[12px] font-semibold leading-tight">Weekly</span>
+                              <span className="text-[10px] font-mono leading-tight mt-0.5" style={{ opacity: s.targetInterval === 'WEEKLY' ? 0.75 : 0.6 }}>1× / week</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={s.targetInterval === 'MONTHLY'}
+                              onClick={() => {
+                                const newList = [...speciesList];
+                                newList[idx].targetInterval = 'MONTHLY';
+                                setSpeciesList(newList);
+                              }}
+                              className="flex-1 rounded-full px-2 py-1.5 flex flex-col items-center justify-center transition-all duration-200 active:scale-[0.97]"
+                              style={s.targetInterval === 'MONTHLY'
+                                ? { background: 'var(--bio-green)', color: '#080f0a', boxShadow: '0 1px 0 rgba(0,0,0,0.15)' }
+                                : { background: 'transparent', color: 'var(--surface-muted)' }}
+                            >
+                              <span className="text-[12px] font-semibold leading-tight">Monthly Rotator</span>
+                              <span className="text-[10px] font-mono leading-tight mt-0.5" style={{ opacity: s.targetInterval === 'MONTHLY' ? 0.75 : 0.6 }}>1× / 28 days</span>
+                            </button>
+                          </div>
                         </FieldGroup>
                         <FieldGroup label="Fridge Target (Grain Bags)" hint="Ideal number of fully colonized bags resting in the fridge">
                           <input type="number" min="0" className="lab-input w-full"
