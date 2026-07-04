@@ -10,8 +10,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/barcode-scanner": "^3.0.2",
     "@capacitor/camera": "^8.2.0",
     "@capacitor/core": "^8.4.1",
+    "@capacitor/push-notifications": "^8.1.1",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.40.0",
     "phosphor-react": "^1.4.1",
