@@ -1,5 +1,5 @@
 // =============================================================
-// Myco Lab — Fridge (Phase 3 Step 3)
+// Myco Lab — Fridge (Phase 3 Step 3 / Phase 5 Step 3)
 //
 // Mobile-overhaul changes:
 //  - H1 down from text-5xl/6xl to text-4xl/6xl for mobile fit.
@@ -14,6 +14,25 @@
 //    never hides under the system gesture bar.
 //  - All interactive buttons (Expire) carry min-h-[44px] for
 //    touch targets.
+//
+// Phase 5 Step 3 hardening:
+//  - EmptyBags card mirrors CalendarEmpty style with a CTA.
+//  - Defensive Array.isArray / ?? [] guards on every list prop
+//    from the API payload so a blank DB never throws.
+//  - Top-of-page empty state if no species are configured at all
+//    (we still try to render even if the inventory payload omits
+//    fields), nudging the operator to the Bench or Settings.
+//
+// Refactor Sprint 1 — Step 4 (Barcode POC):
+//  - Added a "Scan Bag" icon button to the Fridge header.
+//  - Wired @capacitor/barcode-scanner v3.x: CapacitorBarcodeScanner
+//    is a class with a static scanBarcode(options) method returning
+//    { ScanResult: string; format: ... }. Result is logged to
+//    console with the prefix `[Fridge] Scanned bag:` — no UI,
+//    no item creation (proof-of-concept only).
+//  - Web fallback: if Capacitor.getPlatform() === 'web', we log
+//    a friendly console message and return without invoking the
+//    native plugin (it would throw on the browser).
 //
 // Data flow:
 //   1. GET /inventory → fridgeSummary (per-species aggregate)
@@ -32,13 +51,21 @@ import {
 } from 'framer-motion'
 import {
   ArrowClockwise,
+  Barcode,
   CircleNotch,
+  Flask,
   Snowflake,
   Thermometer,
   Trash,
   Warning,
   WifiSlash,
 } from 'phosphor-react'
+
+import { Capacitor } from '@capacitor/core'
+import {
+  CapacitorBarcodeScanner,
+  CapacitorBarcodeScannerTypeHint,
+} from '@capacitor/barcode-scanner'
 
 import {
   ApiError,
@@ -76,6 +103,12 @@ function statusForDays(days: number | null | undefined): BagStatus {
   if (days <= 14) return { tone: 'critical', label: 'Critical' }
   if (days <= 30) return { tone: 'aging', label: 'Aging' }
   return { tone: 'fresh', label: 'Fresh' }
+}
+
+// Defensive list coercion — used at every API payload access so a blank DB
+// (Phase 5 Step 3 blank-state deployment) can never cause a render crash.
+function safeList<T = any>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : []
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -168,11 +201,11 @@ export default function FridgeView() {
     <>
       <FridgeReady
         key={
-          state.fridge.active.length +
+          (state.fridge.active?.length ?? 0) +
           ':' +
-          (state.fridge.active[0]?.id ?? 'empty') +
+          (state.fridge.active?.[0]?.id ?? 'empty') +
           ':' +
-          state.inventory.fridgeSummary.length
+          (state.inventory.fridgeSummary?.length ?? 0)
         }
         inventory={state.inventory}
         fridge={state.fridge}
@@ -210,9 +243,13 @@ function FridgeReady({
   const reduceMotion = useReducedMotion()
   const [toast, setToast] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
+  const [isScanning, setIsScanning] = useState(false)
 
+  // Defensive: never call .sort on undefined. A blank DB returns an empty
+  // array, but intermediate fetches or partial payloads could omit fields.
   const summaries = useMemo(() => {
-    return [...inventory.fridgeSummary].sort((a, b) => {
+    const list = safeList<FridgeSummaryRow>(inventory.fridgeSummary)
+    return [...list].sort((a, b) => {
       const aBelow = num(a, 'below_threshold') ? 1 : 0
       const bBelow = num(b, 'below_threshold') ? 1 : 0
       if (aBelow !== bBelow) return bBelow - aBelow
@@ -220,10 +257,12 @@ function FridgeReady({
     })
   }, [inventory.fridgeSummary])
 
-  const totalActive = fridge.active.length
-  const totalExpired = fridge.expired.length
+  const activeBags = safeList<FridgeBufferRow>(fridge.active)
+  const expiredBags = safeList<FridgeBufferRow>(fridge.expired)
+  const totalActive = activeBags.length
+  const totalExpired = expiredBags.length
   const belowCount = summaries.filter((s) => num(s, 'below_threshold')).length
-  const oldestDays = fridge.active.reduce<number | null>((acc, b) => {
+  const oldestDays = activeBags.reduce<number | null>((acc, b) => {
     const d = b.days_until_expiry
     if (d == null) return acc
     return acc == null ? d : Math.min(acc, d)
@@ -248,6 +287,38 @@ function FridgeReady({
     [busyId, onReload],
   )
 
+  // Refactor Sprint 1 — Step 4 (Barcode POC)
+  // Opens the native barcode scanner via @capacitor/barcode-scanner v3.x.
+  // On web we log a friendly message and bail. On Android, the raw
+  // { ScanResult, format } payload is logged with a clear `[Fridge]`
+  // prefix so the developer can see it in chrome://inspect. No item is
+  // created from the scan — that wiring is a future step.
+  const handleScan = useCallback(async () => {
+    if (isScanning) return
+    if (Capacitor.getPlatform() === 'web') {
+      // eslint-disable-next-line no-console
+      console.log('Barcode scanner not available on web — proof-of-concept only.')
+      return
+    }
+    setIsScanning(true)
+    try {
+      const result = await CapacitorBarcodeScanner.scanBarcode({
+        hint: CapacitorBarcodeScannerTypeHint.ALL,
+      })
+      // eslint-disable-next-line no-console
+      console.log('[Fridge] Scanned bag:', result)
+      if (result && typeof result.ScanResult === 'string') {
+        // eslint-disable-next-line no-console
+        console.log('[Fridge] Scanned bag ScanResult:', result.ScanResult)
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[Fridge] Barcode scan failed:', err)
+    } finally {
+      setIsScanning(false)
+    }
+  }, [isScanning])
+
   return (
     <div className="relative">
       <motion.div
@@ -268,13 +339,31 @@ function FridgeReady({
                 Step 4 · Cold Storage
               </span>
             </div>
-            <button
-              onClick={() => onReload('open-modal')}
-              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95"
-              style={{ background: 'var(--bio-green)', color: 'var(--surface-900)' }}
-            >
-              + New Item
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleScan}
+                disabled={isScanning}
+                aria-label="Scan bag barcode"
+                title="Scan bag"
+                className="inline-flex items-center justify-center min-h-[44px] min-w-[44px] px-3 rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95 disabled:opacity-60 disabled:pointer-events-none"
+                style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'var(--surface-text)',
+                }}
+              >
+                <Barcode size={18} weight="regular" />
+                <span className="ml-1.5 hidden sm:inline">Scan Bag</span>
+              </button>
+              <button
+                onClick={() => onReload('open-modal')}
+                className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] rounded-full font-semibold text-sm transition-transform duration-200 active:scale-95"
+                style={{ background: 'var(--bio-green)', color: 'var(--surface-900)' }}
+              >
+                + New Item
+              </button>
+            </div>
           </div>
           <h1
             className="font-sans font-bold text-4xl md:text-6xl leading-[0.95] tracking-tight text-balance break-words"
@@ -381,7 +470,7 @@ function FridgeReady({
                     color: 'var(--surface-muted)',
                   }}
                 >
-                  No species configured yet.
+                  No species configured yet. Add one in Settings to start tracking a buffer.
                 </div>
               ) : (
                 <div className="space-y-5">
@@ -416,12 +505,12 @@ function FridgeReady({
                 bag that's gone off.
               </p>
 
-              {fridge.active.length === 0 ? (
-                <EmptyBags />
+              {activeBags.length === 0 ? (
+                <EmptyBags onOpenModal={() => onReload('open-modal')} />
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <AnimatePresence initial={false}>
-                    {fridge.active.map((b, i) => (
+                    {activeBags.map((b, i) => (
                       <BagCard
                         key={b.id}
                         row={b}
@@ -434,7 +523,7 @@ function FridgeReady({
                 </div>
               )}
 
-              {fridge.expired.length > 0 && (
+              {expiredBags.length > 0 && (
                 <div
                   className="mt-6 pt-5"
                   style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}
@@ -443,7 +532,7 @@ function FridgeReady({
                     Expired (audit)
                   </span>
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {fridge.expired.slice(0, 6).map((b) => (
+                    {expiredBags.slice(0, 6).map((b) => (
                       <div
                         key={b.id}
                         className="rounded-2xl px-3 py-2 text-[12px] flex items-center justify-between gap-2 min-w-0"
@@ -820,10 +909,14 @@ function BagCard({
 }
 
 // ─────────────────────────────────────────────────────────────
-// EMPTY
+// EMPTY — Phase 5 Step 3 hardened to mirror CalendarEmpty
 // ─────────────────────────────────────────────────────────────
 
-function EmptyBags() {
+// Phase 5 Step 3: hardened empty-state card. Mirrors the CalendarEmpty card
+// style from WeeklyCalendar (icon, headline, body, primary CTA). Added a
+// Settings + New Item CTA pair so the operator can route themselves out of
+// the blank state.
+function EmptyBags({ onOpenModal }: { onOpenModal?: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -845,14 +938,33 @@ function EmptyBags() {
         className="font-sans font-bold text-2xl leading-tight text-balance"
         style={{ color: 'var(--surface-text)' }}
       >
-        Fridge is empty.
+        No cultures in your fridge.
       </h3>
       <p
         className="mt-2 text-[13px] max-w-sm mx-auto"
         style={{ color: 'var(--surface-muted)' }}
       >
-        Move a colonized Gen 2 batch to the fridge to start the 90-day clock.
+        Add a storage batch from the Bench &mdash; move a colonized Gen 2 bag
+        into cold storage and the 90-day clock starts ticking.
       </p>
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        <button
+          type="button"
+          onClick={onOpenModal}
+          className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+          aria-label="Add a new fridge item"
+        >
+          <Flask size={16} weight="regular" />
+          <span>New Fridge Item</span>
+        </button>
+        <a
+          href="/settings"
+          className="min-h-[44px] inline-flex items-center gap-2 btn-ghost"
+          aria-label="Go to Settings"
+        >
+          Go to Settings
+        </a>
+      </div>
     </motion.div>
   )
 }
@@ -993,12 +1105,14 @@ function NewItemModal({
       import('../lib/api').then(m => m.getSpecies()),
       import('../lib/api').then(m => m.getBatches()),
     ]).then(([s, b]) => {
-      setSpeciesList(s)
-      setBatches(b.filter(batch => 
-        (batch.stage === 'GEN1_GRAIN' || batch.stage === 'GEN2_GRAIN' || batch.stage === 'GEN3_GRAIN' || batch.stage === 'BULK_BLOCK') && 
+      const safeSpecies = Array.isArray(s) ? s : []
+      const safeBatches = Array.isArray(b) ? b : []
+      setSpeciesList(safeSpecies)
+      setBatches(safeBatches.filter(batch =>
+        (batch.stage === 'GEN1_GRAIN' || batch.stage === 'GEN2_GRAIN' || batch.stage === 'GEN3_GRAIN' || batch.stage === 'BULK_BLOCK') &&
         batch.pct_complete === 100
       ))
-      if (s.length > 0) setSpeciesId(s[0].id)
+      if (safeSpecies.length > 0) setSpeciesId(safeSpecies[0].id)
     }).catch(err => console.error(err))
   }, [])
 
@@ -1024,7 +1138,7 @@ function NewItemModal({
       const { addFridgeItem } = await import('../lib/api')
       const expires = new Date()
       expires.setDate(expires.getDate() + 90)
-      
+
       await addFridgeItem({
         species_id: Number(speciesId),
         batch_id: Number(batchId),
@@ -1050,7 +1164,7 @@ function NewItemModal({
             </svg>
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
           <div>
             <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>

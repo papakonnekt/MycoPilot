@@ -789,6 +789,23 @@ export function getSchedulerWarnings(): Promise<SchedulerWarningsPayload> {
   return request<SchedulerWarningsPayload>('/scheduler/warnings')
 }
 
+/**
+ * Phase 5 Step 2: dynamic horizon metadata.
+ * GET /scheduler/horizon -> { horizonDays, hasSpecies, speciesCount, startDate, endDate, fallback }
+ */
+export interface SchedulerHorizonPayload {
+  horizonDays: number
+  hasSpecies: boolean
+  speciesCount: number
+  startDate: string
+  endDate: string
+  fallback: number
+}
+
+export function getSchedulerHorizon(): Promise<SchedulerHorizonPayload> {
+  return request<SchedulerHorizonPayload>('/scheduler/horizon')
+}
+
 /** POST /scheduler/run */
 export function runScheduler(): Promise<{ success: boolean; tasksCreated?: number; warnings?: SchedulerWarning[] }> {
   return request<{ success: boolean; tasksCreated?: number; warnings?: SchedulerWarning[] }>('/scheduler/run', { method: 'POST' })

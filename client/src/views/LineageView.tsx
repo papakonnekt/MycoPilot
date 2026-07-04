@@ -1,5 +1,5 @@
 // =============================================================
-// Myco Lab — Lineage (Phase 3 Step 4)
+// Myco Lab — Lineage (Phase 3 Step 4 / Phase 5 Step 3)
 //
 // Mobile-overhaul changes:
 //  - H1 down to text-4xl/6xl.
@@ -11,6 +11,14 @@
 //    so it can wrap below the percent value on narrow screens
 //    (was `truncate`).
 //  - Touch targets (where present) get min-h-[44px].
+//
+// Phase 5 Step 3 hardening:
+//  - Replace the inline empty state at views.length === 0 with a
+//    full CardEmpty that mirrors the CalendarEmpty card style
+//    (icon, headline, body, primary CTA into /settings).
+//  - Defensive Array.isArray / ?? [] guards on every API payload
+//    so a blank DB never throws on .map / .filter / .reduce.
+//  - SenescenceRiskPanel renders cleanly when views.length is 0.
 //
 // Data flow:
 //   1. GET /species → SpeciesRow[] (with target_biological_efficiency)
@@ -59,6 +67,11 @@ interface SpeciesView {
   averageBe: number | null
 }
 
+// Phase 5 Step 3: defensive list coercion for blank-DB deployments.
+function safeList<T = any>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : []
+}
+
 // ─────────────────────────────────────────────────────────────
 // HELPERS
 // ─────────────────────────────────────────────────────────────
@@ -105,11 +118,11 @@ export default function LineageView() {
     setState({ kind: 'loading' })
     const work = (async () => {
       try {
-        const species = await getSpecies()
+        const species = safeList<SpeciesRow>(await getSpecies())
         const pairs = await Promise.all(
           species.map(async (s) => {
             try {
-              const lineages = await getLineagesForSpecies(s.id)
+              const lineages = safeList<LineageRow>(await getLineagesForSpecies(s.id))
               return [s.id, lineages] as const
             } catch {
               return [s.id, [] as LineageRow[]] as const
@@ -118,7 +131,7 @@ export default function LineageView() {
         )
         const lineagesBySpecies: Record<number, LineageRow[]> = {}
         for (const [id, list] of pairs) lineagesBySpecies[id] = list
-        const batches = await getBatches()
+        const batches = safeList<BatchRow>(await getBatches())
         setState({
           kind: 'ready',
           species,
@@ -165,7 +178,7 @@ export default function LineageView() {
           state.batches.length +
           ':' +
           Object.values(state.lineagesBySpecies).reduce(
-            (s, arr) => s + arr.length,
+            (s, arr) => s + (Array.isArray(arr) ? arr.length : 0),
             0,
           )
         }
@@ -175,13 +188,13 @@ export default function LineageView() {
         onAddLineage={() => setIsModalOpen(true)}
       />
       {isModalOpen && (
-        <NewLineageModal 
+        <NewLineageModal
           species={state.species}
-          onClose={() => setIsModalOpen(false)} 
+          onClose={() => setIsModalOpen(false)}
           onSuccess={() => {
             setIsModalOpen(false)
             load()
-          }} 
+          }}
         />
       )}
     </>
@@ -205,20 +218,23 @@ function LineageReady({
 }) {
   const reduceMotion = useReducedMotion()
 
+  const safeBatches = safeList<BatchRow>(batches)
+  const safeSpecies = safeList<SpeciesRow>(species)
+
   const batchesByLineage = useMemo(() => {
     const map = new Map<number, BatchRow[]>()
-    for (const b of batches) {
+    for (const b of safeBatches) {
       if (b.lineage_id == null) continue
       const list = map.get(b.lineage_id) ?? []
       list.push(b)
       map.set(b.lineage_id, list)
     }
     return map
-  }, [batches])
+  }, [safeBatches])
 
   const views: SpeciesView[] = useMemo(() => {
-    return species.map((s) => {
-      const lineages = lineagesBySpecies[s.id] ?? []
+    return safeSpecies.map((s) => {
+      const lineages = safeList<LineageRow>(lineagesBySpecies[s.id])
       const targetBe = num(s.target_biological_efficiency, 0.5)
       const senescPct = num(s.senescence_threshold_pct, 0.2)
       const minAcceptable = targetBe * (1 - senescPct)
@@ -238,11 +254,11 @@ function LineageReady({
 
       return { species: s, lineages, flagged, averageBe }
     })
-  }, [species, lineagesBySpecies])
+  }, [safeSpecies, lineagesBySpecies])
 
   const totalLineages = views.reduce((s, v) => s + v.lineages.length, 0)
   const totalFlagged = views.reduce((s, v) => s + v.flagged.length, 0)
-  const totalBatches = batches.length
+  const totalBatches = safeBatches.length
 
   return (
     <div className="relative">
@@ -283,7 +299,7 @@ function LineageReady({
             style={{ color: 'var(--surface-muted)' }}
           >
             Every strain has a code, a generation count, and a 90-day
-            biological-efficiency average. Watch for the brick-out flags — those
+            biological-efficiency average. Watch for the brick-out flags &mdash; those
             lineages are due for a spore refresh.
           </p>
         </div>
@@ -326,21 +342,21 @@ function LineageReady({
                 <HelpTooltip title="Species Count" text="The total number of species types you currently have configured in your lab settings." />
               </span>
             }
-            value={String(species.length).padStart(2, '0')}
+            value={String(safeSpecies.length).padStart(2, '0')}
           />
         </div>
 
-        {/* Senescence Risk panel */}
-        <div className="mt-6 md:mt-8 min-w-0">
-          <SenescenceRiskPanel views={views} batchesByLineage={batchesByLineage} />
-        </div>
+        {/* Senescence Risk panel — only render if we have species */}
+        {safeSpecies.length > 0 && (
+          <div className="mt-6 md:mt-8 min-w-0">
+            <SenescenceRiskPanel views={views} batchesByLineage={batchesByLineage} />
+          </div>
+        )}
 
         {/* Per-species lineage views */}
         <div className="mt-6 md:mt-8 space-y-4 md:space-y-6 min-w-0">
           {views.length === 0 ? (
-            <div className="lab-card p-6 text-center text-[14px]" style={{ color: 'var(--surface-muted)' }}>
-              No species configured.
-            </div>
+            <LineageEmpty />
           ) : (
             views.map((v, i) => (
               <SpeciesLineageCard
@@ -362,6 +378,57 @@ function LineageReady({
         </div>
       </motion.div>
     </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// EMPTY STATE — Phase 5 Step 3 hardened to mirror CalendarEmpty
+// ─────────────────────────────────────────────────────────────
+
+// Phase 5 Step 3: hardened empty-state card. Mirrors the CalendarEmpty card
+// style (icon, headline, body, primary CTA). When the operator has no species
+// configured, route them to /settings so they can register the first strain.
+function LineageEmpty() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
+      className="mt-6 md:mt-8"
+    >
+      <div className="lab-card-accent px-6 md:p-8 py-12 md:py-14 text-center">
+        <div
+          className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl shrink-0"
+          style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+        >
+          <TreeStructure size={28} weight="regular" />
+        </div>
+        <h2
+          className="font-sans font-bold text-2xl md:text-3xl leading-tight text-balance"
+          style={{ color: 'var(--surface-text)' }}
+        >
+          No lineage yet.
+        </h2>
+        <p
+          className="mt-3 text-[14px] leading-relaxed max-w-xl mx-auto"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          Add a species and start a batch to see its family tree. The lineage
+          registry tracks every strain&rsquo;s genetic history, biological
+          efficiency, and senescence flags.
+        </p>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="/settings"
+            className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+            aria-label="Go to Settings to add a species"
+          >
+            <TreeStructure size={16} weight="regular" />
+            <span>Go to Settings</span>
+          </a>
+        </div>
+      </div>
+    </motion.div>
   )
 }
 
@@ -854,7 +921,7 @@ function MobileLineageCard({
   const isFlagged =
     lineage.is_senescent || (be != null && be < minAcceptable)
   const accentColor = isFlagged ? '#B23A2A' : 'var(--bio-green)'
-  
+
   let history: SparklineDataPoint[] = []
   if (lineage.history_json) {
     try {
@@ -1082,7 +1149,8 @@ function NewLineageModal({
   onClose: () => void
   onSuccess: () => void
 }) {
-  const [speciesId, setSpeciesId] = useState(species[0]?.id || '')
+  const safeSpecies = safeList<SpeciesRow>(species)
+  const [speciesId, setSpeciesId] = useState(safeSpecies[0]?.id || '')
   const [lineageCode, setLineageCode] = useState('')
   const [generation, setGeneration] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -1118,7 +1186,7 @@ function NewLineageModal({
             </svg>
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
           <div>
             <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>
@@ -1128,7 +1196,7 @@ function NewLineageModal({
               onChange={(e) => setSpeciesId(e.target.value)}
               required
             >
-              {species.map(s => (
+              {safeSpecies.map(s => (
                 <option key={s.id} value={s.id}>{s.common_name}</option>
               ))}
             </select>

@@ -1,5 +1,5 @@
 // =============================================================
-// Myco Lab — Incubating (Step 3)
+// Myco Lab — Incubating (Step 3 / Phase 5 Step 3)
 //
 // Mobile-overhaul changes:
 //  - H1 down to text-4xl/6xl.
@@ -11,6 +11,12 @@
 //    sticky position.
 //  - All flex parents that hold text columns have min-w-0.
 //  - Section spacing drops from space-y-9 → space-y-6 on mobile.
+//
+// Phase 5 Step 3 hardening:
+//  - EmptyState card mirrors CalendarEmpty style with a primary CTA
+//    that triggers the existing "+ New Batch" modal flow.
+//  - Defensive Array.isArray guard around the batches payload so a
+//    blank DB never throws on .filter().
 //
 // Data flow:
 //   1. GET /api/batches → BatchRow[] (snake_case from SQLite).
@@ -32,6 +38,7 @@ import {
   ArrowClockwise,
   ArrowRight,
   ArrowUpRight,
+  CalendarBlank,
   WifiSlash,
   Printer,
 } from 'phosphor-react'
@@ -169,6 +176,11 @@ function daysSince(iso: string | null | undefined): number | null {
   return days >= 0 ? days : 0
 }
 
+// Phase 5 Step 3: defensive list coercion for blank-DB deployments.
+function safeList<T = any>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : []
+}
+
 // ─────────────────────────────────────────────────────────────
 // ROOT
 // ─────────────────────────────────────────────────────────────
@@ -178,7 +190,7 @@ let loadInFlight: Promise<void> | null = null
 export default function IncubatingView() {
   const [state, setState] = useState<FetchState>({ kind: 'loading' })
 
-  type ModalState = 
+  type ModalState =
     | { type: 'new' }
     | { type: 'advance'; row: BatchRow }
     | { type: 'contaminate'; row: BatchRow }
@@ -193,7 +205,9 @@ export default function IncubatingView() {
     const work = (async () => {
       try {
         const rows = await getBatches()
-        setState({ kind: 'ready', rows })
+        // Phase 5 Step 3: defensive — guard against the API returning null.
+        const safeRows = safeList<BatchRow>(rows)
+        setState({ kind: 'ready', rows: safeRows })
       } catch (err) {
         const message =
           err instanceof ApiError
@@ -288,7 +302,8 @@ function IncubatingReady({
   onReload: (action?: string, row?: BatchRow) => void
 }) {
   const active = useMemo(() => {
-    const filtered = rows.filter((b) => {
+    const safeRows = safeList<BatchRow>(rows)
+    const filtered = safeRows.filter((b) => {
       const status = (b.status ?? '').toUpperCase()
       if (TERMINAL_STATUSES.has(status)) return false
       return true
@@ -369,7 +384,7 @@ function IncubatingReady({
 
         {/* List */}
         {active.length === 0 ? (
-          <EmptyState />
+          <EmptyState onNewBatch={() => onReload('open-modal')} />
         ) : (
           <div className="mt-6 md:mt-8 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
             <AnimatePresence initial={false}>
@@ -549,7 +564,7 @@ function BatchCard({
     const val = e.target.value
     setNotes(val)
     setSaveNotesStatus('saving')
-    
+
     if (saveNotesTimer.current) window.clearTimeout(saveNotesTimer.current)
     saveNotesTimer.current = window.setTimeout(async () => {
       try {
@@ -1021,10 +1036,14 @@ function IncubatingError({
 }
 
 // ─────────────────────────────────────────────────────────────
-// EMPTY STATE
+// EMPTY STATE — Phase 5 Step 3 hardened to mirror CalendarEmpty
 // ─────────────────────────────────────────────────────────────
 
-function EmptyState() {
+// Phase 5 Step 3: hardened empty-state card. Mirrors the CalendarEmpty card
+// style from WeeklyCalendar (icon, headline, body, primary CTA). The CTA
+// triggers the existing "+ New Batch" modal so the operator can either start
+// a batch in one click or jump to Settings to add species first.
+function EmptyState({ onNewBatch }: { onNewBatch?: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -1033,21 +1052,39 @@ function EmptyState() {
       className="mt-10 md:mt-12"
     >
       <div className="lab-card">
-        <div className="px-6 py-12 md:py-14 text-center">
+        <div className="px-6 md:px-8 py-12 md:py-14 text-center">
           <SporeGlyph />
           <h2
-            className="mt-5 font-sans font-bold text-3xl md:text-5xl leading-[0.95] tracking-tight text-balance"
+            className="mt-5 font-sans font-bold text-2xl md:text-3xl leading-tight text-balance"
             style={{ color: 'var(--surface-text)' }}
           >
-            No active batches.
+            Nothing incubating.
           </h2>
           <p
-            className="mt-3 text-[14px] max-w-sm mx-auto"
+            className="mt-3 text-[14px] leading-relaxed max-w-sm mx-auto"
             style={{ color: 'var(--surface-muted)' }}
           >
-            Nothing colonizing, fruiting, or in spawn run. The bench is clear
-            — start a new PC run to begin.
+            Schedule a run from the Calendar to begin, or jump straight in
+            with a new batch below.
           </p>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={onNewBatch}
+              className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+              aria-label="Add a new batch"
+            >
+              <CalendarBlank size={16} weight="regular" />
+              <span>New Batch</span>
+            </button>
+            <a
+              href="/settings"
+              className="min-h-[44px] inline-flex items-center gap-2 btn-ghost"
+              aria-label="Go to Settings"
+            >
+              Go to Settings
+            </a>
+          </div>
         </div>
       </div>
     </motion.div>
@@ -1103,8 +1140,9 @@ function NewBatchModal({
   useEffect(() => {
     import('../lib/api').then(({ getSpecies }) => {
       getSpecies().then((data) => {
-        setSpeciesList(data)
-        if (data.length > 0) setSpeciesId(data[0].id)
+        const safe = safeList<SpeciesRow>(data)
+        setSpeciesList(safe)
+        if (safe.length > 0) setSpeciesId(safe[0].id)
       }).catch(err => console.error(err))
     })
   }, [])
@@ -1116,8 +1154,9 @@ function NewBatchModal({
     }
     import('../lib/api').then(({ getLineagesForSpecies }) => {
       getLineagesForSpecies(Number(speciesId)).then((data) => {
-        setLineages(data)
-        if (data.length > 0) setLineageId(data[0].id)
+        const safe = safeList<LineageRow>(data)
+        setLineages(safe)
+        if (safe.length > 0) setLineageId(safe[0].id)
         else setLineageId('')
       }).catch(err => console.error(err))
     })
@@ -1154,7 +1193,7 @@ function NewBatchModal({
             </svg>
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
           <div>
             <label className="block text-[13px] font-semibold mb-1" style={{ color: 'var(--surface-muted)' }}>Species</label>
@@ -1254,9 +1293,9 @@ function AdvanceBatchModal({
 }) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  
+
   const currentStage = humanizeStage(row.stage)
-  
+
   // Need to find max_generations from species list if it exists.
   // Wait, AdvanceBatchModal doesn't have speciesList! We can infer from the row if possible or fetch it.
   // Wait, let's just use a dynamic map that supports GENX_GRAIN.
@@ -1301,9 +1340,9 @@ function AdvanceBatchModal({
           <p className="text-surface-muted text-sm leading-relaxed mb-6">
             Move <strong className="text-surface-text">{row.species_name}</strong> from <strong>{currentStage}</strong> to <strong>{nextStageName}</strong>?
           </p>
-          
+
           {error && <div className="p-3 mb-4 bg-danger-dim text-danger text-sm rounded-lg text-left">{error}</div>}
-          
+
           <div className="flex gap-3">
             <button
               onClick={onClose}
@@ -1369,7 +1408,7 @@ function ContaminateBatchModal({
             </svg>
           </button>
         </div>
-        
+
         <form onSubmit={handleContaminate} className="p-5 space-y-4">
           <p className="text-sm text-surface-muted">
             Marking this <strong className="text-surface-text">{row.species_name}</strong> batch as contaminated will move it to the terminal state and remove it from active rotation.
@@ -1440,10 +1479,10 @@ function BatchDetailSheet({
   onContaminate: () => void
 }) {
   const stage = humanizeStage(row.stage)
-  
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm animate-fade_in">
-      <motion.div 
+      <motion.div
         initial={{ x: '100%' }}
         animate={{ x: 0 }}
         exit={{ x: '100%' }}

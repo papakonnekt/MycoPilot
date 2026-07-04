@@ -46,6 +46,7 @@ import {
   ArrowClockwise,
   Check,
   CircleWavyCheck,
+  Flask,
   Trash,
   Warning,
   WifiSlash,
@@ -262,10 +263,11 @@ function DailyViewReady({
   onReload: () => void
 }) {
   const reduceMotion = useReducedMotion()
-  const [tasks, setTasks] = useState<TaskRow[]>(payload.tasks)
+  const [tasks, setTasks] = useState<TaskRow[]>(Array.isArray(payload?.tasks) ? payload.tasks : [])
   const [toast, setToast] = useState<string | null>(null)
   const [contamTarget, setContamTarget] = useState<TaskRow | null>(null)
   const [harvestTarget, setHarvestTarget] = useState<TaskRow | null>(null)
+  const [rescheduleTarget, setRescheduleTarget] = useState<TaskRow | null>(null)
   const { lowCount } = useInventoryAlerts()
 
   // Start of day ritual state
@@ -286,16 +288,18 @@ function DailyViewReady({
     return sorted[0]
   }, [openTasks])
 
-  const handleReschedule = useCallback(
-    async (task: TaskRow) => {
+  const handleRescheduleRequest = useCallback((task: TaskRow) => {
+    // Swipe-left or snooze-tap opens the bottom sheet for date pick.
+    setRescheduleTarget(task)
+  }, [])
+
+  const handleRescheduleConfirm = useCallback(
+    async (task: TaskRow, newDate: string) => {
       const snapshot = tasks
       setTasks((prev) => prev.filter((t) => t.id !== task.id))
       try {
-        const tomorrow = new Date()
-        tomorrow.setDate(tomorrow.getDate() + 1)
-        const tomorrowStr = tomorrow.toISOString().split('T')[0]
-        await rescheduleTask(task.id, tomorrowStr)
-        setToast(`Rescheduled to tomorrow.`)
+        await rescheduleTask(task.id, newDate)
+        setToast(`Rescheduled to ${newDate}.`)
         window.setTimeout(() => setToast(null), 4000)
       } catch (err) {
         setTasks(snapshot)
@@ -377,13 +381,13 @@ function DailyViewReady({
         <p className="text-surface-muted mb-8 text-balance">
           {formatDateLong(parseTaskDate(payload.date))}
         </p>
-        
+
         <div className="w-full text-left space-y-4 mb-10">
           <div className="lab-card p-4 bg-surface-900 border-l-4 border-bio-green">
             <h3 className="font-semibold text-lg text-bio-green mb-1">Today's Load</h3>
             <p className="text-surface-muted text-sm">{openCount} tasks estimated at {formatMinutesShort(totalOpenMins)}.</p>
           </div>
-          
+
           <div className="lab-card p-4 bg-surface-900 border-l-4 border-warn">
             <h3 className="font-semibold text-lg text-warn mb-1">Pre-flight Checklist</h3>
             <ul className="text-surface-muted text-sm list-disc list-inside space-y-1">
@@ -474,7 +478,7 @@ function DailyViewReady({
               entryDelayMs={100}
               onComplete={handleComplete}
               onRequestContam={(t) => setContamTarget(t)}
-              onRequestReschedule={handleReschedule}
+              onRequestReschedule={handleRescheduleRequest}
               isTopPriority={true}
             />
           </div>
@@ -496,7 +500,7 @@ function DailyViewReady({
                   index={gi}
                   onComplete={handleComplete}
                   onRequestContam={(t) => setContamTarget(t)}
-                  onRequestReschedule={handleReschedule}
+                  onRequestReschedule={handleRescheduleRequest}
                 />
               )
             })}
@@ -529,6 +533,16 @@ function DailyViewReady({
             onSuccess={() => {
               setHarvestTarget(null)
               onReload()
+            }}
+          />
+        )}
+        {rescheduleTarget && (
+          <RescheduleSheet
+            task={rescheduleTarget}
+            onClose={() => setRescheduleTarget(null)}
+            onConfirm={(newDate) => {
+              setRescheduleTarget(null)
+              void handleRescheduleConfirm(rescheduleTarget, newDate)
             }}
           />
         )}
@@ -736,10 +750,10 @@ function TaskCard({
     if (dx > 100) {
       // Swipe Right -> Mark Complete
       onComplete(task)
-    } else if (dx < -100 && showContam) {
-      // Swipe Left -> Contam / Skip
-      onRequestContam(task)
-    } else if (dx < -peekThreshold && showContam) {
+    } else if (dx < -100) {
+      // Swipe Left -> Reschedule (opens bottom sheet for date pick)
+      onRequestReschedule(task)
+    } else if (dx < -peekThreshold) {
       setPeekX(-peekThreshold)
     } else {
       setPeekX(0)
@@ -776,7 +790,7 @@ function TaskCard({
         delay: entryDelayMs / 1000,
       }}
       drag={!reduceMotion ? 'x' : false}
-      dragConstraints={{ left: showContam ? -peekThreshold : 0, right: 0 }}
+      dragConstraints={{ left: -peekThreshold, right: 0 }}
       dragElastic={0.8}
       onDragEnd={handleDragEnd}
       dragMomentum={false}
@@ -789,12 +803,10 @@ function TaskCard({
           <Check weight="bold" />
           <span className="text-[11px] font-medium uppercase tracking-eyebrow">Complete</span>
         </div>
-        {showContam && (
-          <div className="flex items-center gap-2 text-[#B23A2A]">
-            <span className="text-[11px] font-medium uppercase tracking-eyebrow">Contam / Skip</span>
-            <Trash weight="bold" />
-          </div>
-        )}
+        <div className="flex items-center gap-2" style={{ color: 'var(--warn)' }}>
+          <span className="text-[11px] font-medium uppercase tracking-eyebrow">Reschedule</span>
+          <ArrowClockwise weight="bold" />
+        </div>
       </div>
 
       <div className={`lab-card bg-surface-900 ${isTopPriority ? 'ring-1 ring-warn/30' : ''}`}>
@@ -849,7 +861,7 @@ function TaskCard({
                 ) : null}
               </div>
               {task.notes !== undefined && (
-                <div 
+                <div
                   className="mt-2"
                   onClick={(e) => {
                     // Prevent drag interaction when focusing textarea
@@ -1087,9 +1099,14 @@ function DailyViewError({
 }
 
 // ─────────────────────────────────────────────────────────────
-// EMPTY STATE
+// EMPTY STATE — Phase 5 Step 3 hardened
 // ─────────────────────────────────────────────────────────────
 
+// Phase 5 Step 3: hardened empty-state card. Mirrors the CalendarEmpty card
+// style from WeeklyCalendar (icon, headline, body, primary CTA). The previous
+// copy "Bench is clear" implied tasks had been completed; for a blank-state
+// deployment we route the operator into Settings so they can add their first
+// species.
 function EmptyState() {
   return (
     <motion.div
@@ -1098,16 +1115,37 @@ function EmptyState() {
       transition={{ duration: 0.6, ease: [0.32, 0.72, 0, 1] }}
       className="mt-10 md:mt-12 px-3"
     >
-      <div className="lab-card-accent px-6 py-14 text-center">
-        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl" style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}>
+      <div className="lab-card-accent px-6 md:px-8 py-10 md:py-12 text-center">
+        <div
+          className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl shrink-0"
+          style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+        >
           <CircleWavyCheck size={28} weight="regular" />
         </div>
-        <h2 className="font-sans font-bold text-3xl md:text-4xl leading-tight tracking-tight text-balance" style={{ color: 'var(--surface-text)' }}>
-          Bench is clear.
+        <h2
+          className="font-sans font-bold text-2xl md:text-3xl leading-tight text-balance"
+          style={{ color: 'var(--surface-text)' }}
+        >
+          No tasks scheduled for today.
         </h2>
-        <p className="mt-3 text-[14px]" style={{ color: 'var(--surface-muted)' }}>
-          Nothing scheduled for today. Take a breath.
+        <p
+          className="mt-3 text-[14px] leading-relaxed max-w-xl mx-auto"
+          style={{ color: 'var(--surface-muted)' }}
+        >
+          Nothing on the bench right now. If you haven&rsquo;t added any
+          species yet, head to Settings to register your first strain and the
+          scheduler will populate this view.
         </p>
+        <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="/settings"
+            className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+            aria-label="Go to Settings to add a species"
+          >
+            <Flask size={16} weight="regular" />
+            <span>Go to Settings</span>
+          </a>
+        </div>
       </div>
     </motion.div>
   )
@@ -1166,7 +1204,7 @@ export function HarvestWeightModal({
     if (!task.batch_id) return
     setIsSubmitting(true)
     setError(null)
-    
+
     try {
       const { logHarvest, completeTask } = await import('../lib/api')
       await logHarvest(task.batch_id, {
@@ -1193,7 +1231,7 @@ export function HarvestWeightModal({
             <X size={16} weight="regular" />
           </button>
         </div>
-        
+
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4">
           <div className="mb-2">
             <span className="eyebrow-tag">{task.species_name}</span>
@@ -1312,7 +1350,7 @@ export function ContaminateTaskModal({
     if (!task.batch_id) return
     setIsSubmitting(true)
     setError(null)
-    
+
     try {
       const { contaminateBatch } = await import('../lib/api')
       await contaminateBatch(task.batch_id, contamType, undefined, notes || undefined)
@@ -1332,7 +1370,7 @@ export function ContaminateTaskModal({
             <X size={16} weight="regular" />
           </button>
         </div>
-        
+
         <form onSubmit={handleContaminate} className="p-5 space-y-4">
           <div className="rounded-2xl px-4 py-3 mb-2" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
             <div className="text-[10px] uppercase tracking-eyebrow mb-1" style={{ color: 'var(--surface-muted)' }}>Task</div>
@@ -1389,15 +1427,184 @@ export function ContaminateTaskModal({
               Cancel
             </button>
             <button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex-1 py-3 rounded-full font-semibold text-sm bg-danger text-white transition-colors disabled:opacity-50"
+                type="submit"
+                disabled={isSubmitting}
+                className="flex-1 py-3 rounded-full font-semibold text-sm bg-danger text-white transition-colors disabled:opacity-50"
+              >
+                {isSubmitting ? 'Reporting...' : 'Toss Batch'}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    )
+  }
+  
+  // =============================================================
+  // RESCHEDULE SHEET — Step 2 swipe-left destination
+  // Soft Structuralism bottom sheet: amber accent (matches --warn token
+  // used elsewhere — see BudgetStrip / InventoryAlert), double-bezel
+  // lab-card surface, native date input wrapped in the same "lab"
+  // form-control look as the harvest / contam modals above.
+  // =============================================================
+  
+  function todayIso(): string {
+    const d = new Date()
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  
+  function isoPlusDays(days: number): string {
+    const d = new Date()
+    d.setDate(d.getDate() + days)
+    const y = d.getFullYear()
+    const m = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${y}-${m}-${day}`
+  }
+  
+  export function RescheduleSheet({
+    task,
+    onClose,
+    onConfirm,
+  }: {
+    task: TaskRow
+    onClose: () => void
+    onConfirm: (newDate: string) => void
+  }) {
+    const minDate = todayIso()
+    const [newDate, setNewDate] = useState<string>(isoPlusDays(1))
+    const [isSubmitting, setIsSubmitting] = useState(false)
+  
+    const handleSubmit = (e: React.FormEvent) => {
+      e.preventDefault()
+      if (!newDate || newDate < minDate) return
+      setIsSubmitting(true)
+      onConfirm(newDate)
+    }
+  
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reschedule-title"
+        onClick={(e) => {
+          // Tap outside the sheet (on the backdrop) snaps the card back.
+          if (e.target === e.currentTarget) onClose()
+        }}
+      >
+        <motion.div
+          initial={{ y: 32, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: 32, opacity: 0 }}
+          transition={{ duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
+          className="w-full max-w-md bg-surface-900 border border-warn/30 rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden flex flex-col"
+          style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 0px)' }}
+        >
+          {/* Drag handle — purely decorative, mirrors mobile bottom-sheet convention */}
+          <div className="pt-2 pb-1 flex justify-center">
+            <span className="h-1 w-10 rounded-full" style={{ background: 'rgba(255,255,255,0.18)' }} />
+          </div>
+  
+          <div className="flex items-center justify-between px-4 pb-3 border-b border-surface-border">
+            <div className="min-w-0">
+              <span className="eyebrow-tag text-warn">Reschedule</span>
+              <h2 id="reschedule-title" className="font-semibold text-lg mt-1 text-surface-text truncate">
+                Pick a new date
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close reschedule sheet"
+              className="p-2 text-surface-muted hover:text-surface-text transition-colors shrink-0"
             >
-              {isSubmitting ? 'Reporting...' : 'Toss Batch'}
+              <X size={18} weight="regular" />
             </button>
           </div>
-        </form>
+  
+          <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <div
+              className="rounded-2xl px-4 py-3"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
+            >
+              <div className="text-[10px] uppercase tracking-eyebrow mb-1" style={{ color: 'var(--surface-muted)' }}>
+                Task
+              </div>
+              <div className="text-[15px] font-medium leading-snug break-words" style={{ color: 'var(--surface-text)' }}>
+                {task.title}
+              </div>
+              {task.species_name && (
+                <div className="mt-1 text-[12px] break-words" style={{ color: 'var(--surface-muted)' }}>
+                  {task.species_name}
+                  {task.batch_ref && (
+                    <> · <span className="font-mono uppercase" style={{ color: 'var(--bio-green)' }}>{task.batch_ref}</span></>
+                  )}
+                </div>
+              )}
+            </div>
+  
+            <div>
+              <label htmlFor="reschedule-date" className="block text-[13px] font-semibold mb-1 text-surface-text">
+                New date
+              </label>
+              <input
+                id="reschedule-date"
+                type="date"
+                required
+                min={minDate}
+                value={newDate}
+                onChange={(e) => setNewDate(e.target.value)}
+                className="w-full bg-surface-800 border border-surface-border rounded-lg px-3 py-2.5 text-surface-text outline-none focus:border-warn transition-colors font-mono"
+              />
+            </div>
+  
+            <div className="flex gap-2 text-[12px]" style={{ color: 'var(--surface-muted)' }}>
+              <button
+                type="button"
+                onClick={() => setNewDate(isoPlusDays(1))}
+                className="px-2 py-1 rounded-full border border-surface-border hover:border-warn/60 transition-colors"
+              >
+                +1d
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewDate(isoPlusDays(3))}
+                className="px-2 py-1 rounded-full border border-surface-border hover:border-warn/60 transition-colors"
+              >
+                +3d
+              </button>
+              <button
+                type="button"
+                onClick={() => setNewDate(isoPlusDays(7))}
+                className="px-2 py-1 rounded-full border border-surface-border hover:border-warn/60 transition-colors"
+              >
+                +1w
+              </button>
+            </div>
+  
+            <div className="pt-2 flex gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="flex-1 py-3 rounded-full font-semibold text-sm bg-surface-800 text-surface-text hover:bg-surface-border transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !newDate || newDate < minDate}
+                className="flex-1 py-3 rounded-full font-semibold text-sm bg-warn text-surface-900 disabled:opacity-50 transition-colors"
+              >
+                {isSubmitting ? 'Rescheduling...' : 'Reschedule'}
+              </button>
+            </div>
+          </form>
+        </motion.div>
       </div>
-    </div>
-  )
-}
+    )
+  }

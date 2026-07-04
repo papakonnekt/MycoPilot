@@ -1,5 +1,5 @@
 // =============================================================
-// Myco Lab — Settings (Phase 3 Step 2)
+// Myco Lab — Settings (Phase 3 Step 2 / Phase 5 Step 3)
 //
 // Mobile-overhaul changes:
 //  - H1 down to text-4xl/6xl.
@@ -13,6 +13,16 @@
 //    never hides under the system gesture bar.
 //  - Every input wrapper uses min-w-0 + overflow-x-hidden so
 //    long numbers don't push the row out of the card.
+//
+// Phase 5 Step 3 hardening:
+//  - Replaced the terse species empty-state with a full CardEmpty
+//    mirroring the CalendarEmpty style. The CTA points to the
+//    Onboarding flow (which is the only path that creates species
+//    via setupSettings / POST /api/settings/setup).
+//  - Defensive Array.isArray guards on every list payload from the
+//    API so a blank DB never throws on .map / .reduce.
+//  - SettingsView renders cleanly with 0 species, 0 thresholds,
+//    0 weekly targets.
 //
 // Data flow:
 //   1. GET /api/settings → SettingsPayload
@@ -103,7 +113,7 @@ interface SpeciesDraft {
   lc_volume_ml_available: number
   agar_plates: number
   spore_prints: number
-  
+
   // Added fields
   lc_injection_volume_ml: number
   min_gen2_bags: number
@@ -112,6 +122,11 @@ interface SpeciesDraft {
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
+// Phase 5 Step 3: defensive list coercion for blank-DB deployments.
+function safeList<T = any>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : []
+}
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -141,8 +156,10 @@ function toSpeciesDraft(row: SettingsSpeciesRow, data: SettingsPayload): Species
     return Number.isFinite(n) ? n : fallback
   }
 
-  const fridge = data.fridgeThresholds?.find(f => f.species_id === row.id)
-  const wt = data.weeklyTargets?.find(w => w.species_id === row.id)
+  const thresholds = safeList(data.fridgeThresholds)
+  const targets = safeList(data.weeklyTargets)
+  const fridge = thresholds.find(f => f.species_id === row.id)
+  const wt = targets.find(w => w.species_id === row.id)
 
   return {
     id: row.id,
@@ -218,6 +235,13 @@ export default function SettingsView() {
     return <SettingsError message={state.message} onRetry={load} />
   }
 
+  // Phase 5 Step 3: guard against a payload that has no hardware row.
+  // A blank DB after first boot (isSetup === false) is normally caught by
+  // the Onboarding guard in App.tsx, but be defensive here too.
+  if (!state.data.hardware) {
+    return <SettingsError message="Hardware not configured. Please complete onboarding." onRetry={load} />
+  }
+
   return (
     <SettingsReady
       key={(state.data.hardware?.id ?? 'none') + ':' + (state.data.species?.length ?? 0)}
@@ -243,7 +267,7 @@ function SettingsReady({
     toHardwareDraft(data.hardware!),
   )
   const [speciesDrafts, setSpeciesDrafts] = useState<SpeciesDraft[]>(() =>
-    data.species!.map(row => toSpeciesDraft(row, data)),
+    safeList<SettingsSpeciesRow>(data.species).map(row => toSpeciesDraft(row, data)),
   )
   const [hwStatus, setHwStatus] = useState<SaveStatus>('idle')
   const [hwError, setHwError] = useState<string | null>(null)
@@ -254,7 +278,8 @@ function SettingsReady({
   const [showUrlModal, setShowUrlModal] = useState(false)
 
   const hwDirty = useMemo(() => {
-    const original = toHardwareDraft(data.hardware!)
+    if (!data.hardware) return false
+    const original = toHardwareDraft(data.hardware)
     return (Object.keys(original) as Array<keyof HardwareDraft>).some(
       (k) => original[k] !== hwDraft[k],
     )
@@ -783,13 +808,15 @@ function SpeciesSection({
   onChange: (next: SpeciesDraft[]) => void
   onSave: (draft: SpeciesDraft) => void
 }) {
+  const safeDrafts = safeList<SpeciesDraft>(drafts)
+
   const updateOne = useCallback(
     (id: number, patch: Partial<SpeciesDraft>) => {
       onChange(
-        drafts.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+        safeDrafts.map((d) => (d.id === id ? { ...d, ...patch } : d)),
       )
     },
-    [drafts, onChange],
+    [safeDrafts, onChange],
   )
 
   return (
@@ -813,12 +840,10 @@ function SpeciesSection({
       </p>
 
       <div className="space-y-4 min-w-0">
-        {drafts.length === 0 ? (
-          <div className="rounded-2xl px-4 py-6 text-center text-[13px]" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', color: 'var(--surface-muted)' }}>
-            No species configured. Add one in the database to begin.
-          </div>
+        {safeDrafts.length === 0 ? (
+          <SettingsSpeciesEmpty />
         ) : (
-          drafts.map((d) => (
+          safeDrafts.map((d) => (
             <SpeciesCard
               key={d.id}
               draft={d}
@@ -831,6 +856,56 @@ function SpeciesSection({
         )}
       </div>
     </div>
+  )
+}
+
+// Phase 5 Step 3: hardened species empty-state. Mirrors the CalendarEmpty
+// card style (icon, headline, body, primary CTA). The only path that creates
+// species today is the Onboarding flow (POST /api/settings/setup), so the
+// CTA points there. Once the API exposes createSpecies, this CTA can be
+// swapped for an inline form.
+function SettingsSpeciesEmpty() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease: [0.32, 0.72, 0, 1] }}
+      className="rounded-2xl px-6 py-10 text-center"
+      style={{
+        background: 'rgba(255,255,255,0.03)',
+        border: '1px solid rgba(255,255,255,0.08)',
+      }}
+    >
+      <div
+        className="mx-auto mb-4 h-12 w-12 rounded-full flex items-center justify-center"
+        style={{ background: 'var(--bio-green-dim)', color: 'var(--bio-green)' }}
+      >
+        <Flask size={24} weight="regular" />
+      </div>
+      <h3
+        className="font-sans font-bold text-2xl leading-tight text-balance"
+        style={{ color: 'var(--surface-text)' }}
+      >
+        No species yet.
+      </h3>
+      <p
+        className="mt-2 text-[13px] max-w-sm mx-auto"
+        style={{ color: 'var(--surface-muted)' }}
+      >
+        Add a species in Onboarding to start tracking biological timelines,
+        expansion ratios, and biological-efficiency targets.
+      </p>
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        <a
+          href="/onboarding"
+          className="min-h-[44px] group inline-flex items-center gap-2 btn-primary"
+          aria-label="Open Onboarding to add a species"
+        >
+          <Flask size={16} weight="regular" />
+          <span>Open Onboarding</span>
+        </a>
+      </div>
+    </motion.div>
   )
 }
 
