@@ -369,7 +369,28 @@ router.get('/horizon', (_req: Request, res: Response) => {
       });
     }
 
+    // Sprint 2 Step 3: walk every active species + profile to identify the
+    // slowest biological timeline. timelineDays = lcToGen1DaysMax +
+    // gen2ColonizationDaysMax + bulkColonizationDaysMax + fruitingDaysMax.
+    // Surface this in the JSON so the orchestrator + UI can verify the
+    // horizon math against a hypothetical Shiitake-like species (21+21+30+45=117).
+    let slowestSpecies: { id: number; commonName: string; timelineDays: number } | null = null;
+    for (const [speciesId, species] of speciesMap.entries()) {
+      const profile = profileMap.get(speciesId);
+      if (!species || !profile) continue;
+      const timelineDays =
+        safeNumber(profile.lcToGen1DaysMax, 0) +
+        safeNumber(profile.gen2ColonizationDaysMax, 0) +
+        safeNumber(profile.bulkColonizationDaysMax, 0) +
+        safeNumber(profile.fruitingDaysMax, 0);
+      if (timelineDays <= 0) continue;
+      if (!slowestSpecies || timelineDays > slowestSpecies.timelineDays) {
+        slowestSpecies = { id: speciesId, commonName: species.commonName, timelineDays };
+      }
+    }
+
     const horizonDays = computeHorizonDays(speciesMap, profileMap, schedulingHorizonDays);
+    const horizonSource: 'slowest-species' | 'fallback' = slowestSpecies ? 'slowest-species' : 'fallback';
     const today = new Date();
     const horizonEnd = new Date(today);
     horizonEnd.setDate(horizonEnd.getDate() + horizonDays);
@@ -383,6 +404,11 @@ router.get('/horizon', (_req: Request, res: Response) => {
         startDate: today.toISOString().split('T')[0],
         endDate: horizonEnd.toISOString().split('T')[0],
         fallback: HORIZON_FALLBACK_DAYS,
+        // Sprint 2 Step 3: diagnostic fields — additive, backward-compatible.
+        // The UI ignores them; orchestrator smoke checks use them to verify
+        // horizon math against a hypothetical Shiitake-like species.
+        source: horizonSource,
+        slowestSpecies: slowestSpecies ?? undefined,
       },
     });
   } catch (err) {

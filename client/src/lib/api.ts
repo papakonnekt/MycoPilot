@@ -824,6 +824,17 @@ export interface SchedulerHorizonPayload {
   startDate: string
   endDate: string
   fallback: number
+  // Sprint 2 Step 3: optional diagnostic payload from GET /api/scheduler/horizon.
+  // `source` tells the caller why the horizon is what it is — either the
+  // slowest species drove it, or the engine fell back to HORIZON_FALLBACK_DAYS.
+  // `slowestSpecies` is the winning row when source === 'slowest-species';
+  // `timelineDays` is the sum of the four max biological timeline fields.
+  source?: 'slowest-species' | 'fallback'
+  slowestSpecies?: {
+    id: number
+    commonName: string
+    timelineDays: number
+  }
 }
 
 export function getSchedulerHorizon(): Promise<SchedulerHorizonPayload> {
